@@ -117,6 +117,17 @@ py_binary(
     imports = ["..", "."],
 )
 
+py_binary(
+    name = "run_tesseract",
+    srcs = ["run_tesseract.py"],
+    deps = [
+        "@pypi//numpy",
+        "@pypi//stim",
+        "//src:lib_tesseract_decoder",
+    ],
+    imports = ["..", "."],
+)
+
 STUB_FILES = [
     "__init__.pyi",
     "common.pyi",
