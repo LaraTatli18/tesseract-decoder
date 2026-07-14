@@ -24,6 +24,16 @@ ROOT = Path(__file__).resolve().parents[1]
 # ================================================
 
 @dataclass(frozen=True)
+class DecodeStatistics:
+    correct: int
+    low_confidence: int
+    syndrome_weights: list[int]
+    correction_sizes: list[int]
+    correction_costs: list[float]
+    decode_time_seconds: float
+
+
+@dataclass(frozen=True)
 class BenchmarkResult: # Schema for result from ONE CIRCUIT
     stim_file: str
     rounds: int # meta
@@ -50,6 +60,8 @@ class BenchmarkResult: # Schema for result from ONE CIRCUIT
     logical_error_rate_ci_high: float # higher bound of confidence interval on logical error rate
     decode_time_seconds: float
     shots_per_second: float
+    decode_mode: str
+    workers: int
 
 def parse_stim_filename(stim_path: Path) -> dict[str, str]:
 
@@ -115,7 +127,7 @@ def _select_benchmark_files(
     stim_dir: Path,
     basis: str,
     distances: set[int],
-    p_values: set[str],
+    p_values: set[float],
 ) -> list[Path]:
 
     stim_files: list[Path] = []
@@ -140,10 +152,85 @@ def _select_benchmark_files(
     )
     return stim_files
 
+def _analyse_single_shots(
+    decoder: tesseract.TesseractDecoder,
+    detections: np.ndarray,
+    observables: np.ndarray,
+    print_every: int,
+) -> DecodeStatistics:
 
-def analyse_one_circuit(stim_path: Path, n_shots: int, verbose_histograms: bool, print_every: int) -> BenchmarkResult:
+    correct = 0
+    low_confidence = 0
+    syndrome_weights: list[int] = []
+    correction_sizes: list[int] = []
+    correction_costs: list[float] = []
+
+    # ========================================
+    # MAIN DECODING LOOP
+    # ========================================
+
+    start_time = time.perf_counter()
+
+    for shot_index, (syndrome, truth) in enumerate(zip(detections, observables), start=1):
+
+        predicted_errors = decoder.decode_to_errors(syndrome)
+        predicted_obs = decoder.get_observables_from_errors(predicted_errors)
+        cost = decoder.cost_from_errors(predicted_errors)
+        was_low_confidence = bool(decoder.low_confidence_flag)
+
+        syndrome_weights.append(int(np.count_nonzero(syndrome)))
+        correction_sizes.append(len(predicted_errors))
+        correction_costs.append(float(cost))
+
+        if was_low_confidence:
+            low_confidence += 1
+
+        if np.array_equal(predicted_obs, truth):
+            correct += 1
+
+        if print_every > 0 and shot_index % print_every == 0:
+            print(f"  processed {shot_index}/{len(detections)} shots")
+
+    return DecodeStatistics(
+        correct=correct,
+        low_confidence=low_confidence,
+        syndrome_weights=syndrome_weights,
+        correction_sizes=correction_sizes,
+        correction_costs=correction_costs,
+        decode_time_seconds=time.perf_counter() - start_time,
+    )
+
+def _analyse_batch_shots(
+    decoder: tesseract.TesseractDecoder,
+    detections: np.ndarray,
+    observables: np.ndarray
+) -> DecodeStatistics:
+
+    start_time = time.perf_counter()
+    predicted_obs = np.asarray(decoder.decode_batch(detections))
+    decode_time_seconds = time.perf_counter() - start_time
+
+    if predicted_obs.ndim == 1:
+        predicted_obs = predicted_obs[:, np.newaxis]
+    if observables.ndim == 1:
+        observables = observables[:, np.newaxis]
+
+    correct = int(np.sum(np.all(predicted_obs == observables, axis=1)))
+    syndrome_weights = np.count_nonzero(detections, axis=1).tolist()
+
+    return DecodeStatistics(
+        correct=correct,
+        low_confidence=0,
+        syndrome_weights=syndrome_weights,
+        correction_sizes=[],
+        correction_costs=[],
+        decode_time_seconds=decode_time_seconds,
+    )
+
+
+def analyse_one_circuit(stim_path: Path, n_shots: int, verbose_histograms: bool, print_every: int, decode_mode: str, workers: int) -> BenchmarkResult:
     print("=" * 100)
-    print(f"Analysing shot: {stim_path.name}") # change shot to circuit
+    print(f"Analysing circuit: {stim_path.name}")
     print("=" * 100)
 
     circuit = stim.Circuit.from_file(stim_path)
@@ -162,42 +249,24 @@ def analyse_one_circuit(stim_path: Path, n_shots: int, verbose_histograms: bool,
     detections, observables = sampler.sample(shots=n_shots,
                                              separate_observables=True)
 
-    correct = 0
-    low_confidence = 0
-    syndrome_weights: list[int] = []
-    correction_sizes: list[int] = []
-    correction_costs: list[float] = []
+    if decode_mode == "batch":
+        stats = _analyse_batch_shots(decoder, detections, observables)
+    elif decode_mode == "single":
+        stats = _analyse_single_shots(decoder, detections, observables, print_every)
+    else:
+        raise(ValueError(f"Unknown decode mode: {decode_mode}"))
 
-    # ========================================
-    # MAIN DECODING LOOP
-    # ========================================
+    correct = stats.correct
+    low_confidence = stats.low_confidence
+    syndrome_weights = stats.syndrome_weights
+    correction_sizes = stats.correction_sizes
+    correction_costs = stats.correction_costs
+    decode_time_seconds = stats.decode_time_seconds
 
-    start_time = time.perf_counter()
+    # CONSTRUCT BENCHMARK RESULT
 
-    for shot_index, (syndrome, truth) in enumerate(zip(detections, observables),
-                                                   start=1):
-        predicted_errors = decoder.decode_to_errors(syndrome)
-        predicted_obs = decoder.get_observables_from_errors(predicted_errors)
-        cost = decoder.cost_from_errors(predicted_errors)
-        was_low_confidence = bool(decoder.low_confidence_flag)
-
-        syndrome_weights.append(int(np.count_nonzero(syndrome)))
-        correction_sizes.append(len(predicted_errors))
-        correction_costs.append(float(cost))
-
-        if was_low_confidence:
-            low_confidence += 1
-
-        if np.array_equal(predicted_obs, truth):
-            correct += 1
-
-        if print_every > 0 and shot_index % print_every == 0:
-            print(f"  processed {shot_index}/{n_shots} shots")
-
-    decode_time_seconds = time.perf_counter() - start_time
     shots_per_second = n_shots / decode_time_seconds if decode_time_seconds > 0 else float(
         "inf")
-
     logical_failures = n_shots - correct
     decoder_accuracy = correct / n_shots
     logical_error_rate = logical_failures / n_shots
@@ -217,6 +286,8 @@ def analyse_one_circuit(stim_path: Path, n_shots: int, verbose_histograms: bool,
     print("=" * 100)
     print("Summary")
     print("=" * 100)
+    print(f"Decode mode      : {decode_mode}")
+    print(f"Circuit workers  : {workers}")
     print(f"Shots analysed          : {n_shots}")
     print(f"Correct decodings       : {correct}")
     print(f"Logical failures        : {logical_failures}")
@@ -263,14 +334,19 @@ def analyse_one_circuit(stim_path: Path, n_shots: int, verbose_histograms: bool,
         logical_error_rate_ci_high=ci_high,
         decode_time_seconds=decode_time_seconds,
         shots_per_second=shots_per_second,
+        decode_mode=decode_mode,
+        workers=workers
     )
 
     return result
 
 
-def _worker(task: tuple[Path, int, bool, int]) -> BenchmarkResult:
-    stim_path, n_shots, verbose_histograms, print_every = task
-    return analyse_one_circuit(stim_path, n_shots, verbose_histograms, print_every)
+def _worker(task: tuple[Path, int, bool, int, str, int]) -> BenchmarkResult:
+    stim_path, n_shots, verbose_histograms, print_every, decode_mode, workers = task
+    print(f"Starting circuit: {stim_path.name}")
+    result = analyse_one_circuit(stim_path, n_shots, verbose_histograms, print_every, decode_mode, workers)
+    print(f"Finished circuit: {stim_path.name}")
+    return result
 
 
 # ===========================
@@ -294,8 +370,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--output-csv",
         type=Path,
-        default=ROOT / "experiments" / "analyse_many_shots.csv",
-        help="CSV file to append summary rows to.",
+        default=None,
+        help="CSV file to append summary rows to. If omitted, a descriptive filename is generated automatically."
     )
     parser.add_argument(
         "--stim-dir",
@@ -318,6 +394,20 @@ if __name__ == "__main__":
         default=1,
         help="Number of parallel workers."
     )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=1,
+        help="Number of parallel threads for shot multiprocessing."
+    )
+    parser.add_argument(
+        "--decode-mode",
+        choices=["single", "batch"],
+        default="batch",
+        help="Decode mode."
+    )
+    # decode_batch removes the Python loop overhead
+    # Native shot-threading is currently only available through the Tesseract CLI (--threads)
     parser.add_argument(
         "--basis",
         type=str,
@@ -360,10 +450,20 @@ if __name__ == "__main__":
     if args.max_files is not None:
         stim_files = stim_files[: args.max_files]
 
+    if args.output_csv is None:
+        default_name = (
+            f"{args.basis}_"
+            f"{args.decode_mode}_"
+            f"{args.n_shots}shots_"
+            f"{args.workers}workers_"
+            f"{args.threads}threads.csv"
+        )
+        args.output_csv = ROOT / "experiments" / "results" / default_name
+
     print(f"Found {len(stim_files)} circuits.\n")
 
     tasks = [
-        (stim_file, args.n_shots, args.verbose_histograms, args.print_every)
+        (stim_file, args.n_shots, args.verbose_histograms, args.print_every, args.decode_mode, args.workers)
         for stim_file in stim_files
     ]
 
@@ -376,7 +476,7 @@ if __name__ == "__main__":
 
     else:
         for stim_file in stim_files:
-            result = analyse_one_circuit(stim_file, n_shots=args.n_shots, verbose_histograms=args.verbose_histograms, print_every=args.print_every)
+            result = analyse_one_circuit(stim_file, n_shots=args.n_shots, verbose_histograms=args.verbose_histograms, print_every=args.print_every, decode_mode=args.decode_mode, workers=args.workers)
             _write_summary_csv(args.output_csv, asdict(result))
             print(f"Saved summary to : {args.output_csv}")
 
