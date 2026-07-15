@@ -203,11 +203,12 @@ def _analyse_single_shots(
 def _analyse_batch_shots(
     decoder: tesseract.TesseractDecoder,
     detections: np.ndarray,
-    observables: np.ndarray
+    observables: np.ndarray,
+    num_threads: int,
 ) -> DecodeStatistics:
 
     start_time = time.perf_counter()
-    predicted_obs = np.asarray(decoder.decode_batch(detections))
+    predicted_obs = np.asarray(decoder.decode_batch(detections, num_threads))
     decode_time_seconds = time.perf_counter() - start_time
 
     if predicted_obs.ndim == 1:
@@ -228,7 +229,7 @@ def _analyse_batch_shots(
     )
 
 
-def analyse_one_circuit(stim_path: Path, n_shots: int, verbose_histograms: bool, print_every: int, decode_mode: str, workers: int) -> BenchmarkResult:
+def analyse_one_circuit(stim_path: Path, n_shots: int, verbose_histograms: bool, print_every: int, decode_mode: str, workers: int, threads: int) -> BenchmarkResult:
     print("=" * 100)
     print(f"Analysing circuit: {stim_path.name}")
     print("=" * 100)
@@ -250,7 +251,7 @@ def analyse_one_circuit(stim_path: Path, n_shots: int, verbose_histograms: bool,
                                              separate_observables=True)
 
     if decode_mode == "batch":
-        stats = _analyse_batch_shots(decoder, detections, observables)
+        stats = _analyse_batch_shots(decoder, detections, observables, threads)
     elif decode_mode == "single":
         stats = _analyse_single_shots(decoder, detections, observables, print_every)
     else:
@@ -341,10 +342,10 @@ def analyse_one_circuit(stim_path: Path, n_shots: int, verbose_histograms: bool,
     return result
 
 
-def _worker(task: tuple[Path, int, bool, int, str, int]) -> BenchmarkResult:
-    stim_path, n_shots, verbose_histograms, print_every, decode_mode, workers = task
+def _worker(task: tuple[Path, int, bool, int, str, int, int]) -> BenchmarkResult:
+    stim_path, n_shots, verbose_histograms, print_every, decode_mode, workers, threads = task
     print(f"Starting circuit: {stim_path.name}")
-    result = analyse_one_circuit(stim_path, n_shots, verbose_histograms, print_every, decode_mode, workers)
+    result = analyse_one_circuit(stim_path, n_shots, verbose_histograms, print_every, decode_mode, workers, threads)
     print(f"Finished circuit: {stim_path.name}")
     return result
 
@@ -463,7 +464,7 @@ if __name__ == "__main__":
     print(f"Found {len(stim_files)} circuits.\n")
 
     tasks = [
-        (stim_file, args.n_shots, args.verbose_histograms, args.print_every, args.decode_mode, args.workers)
+        (stim_file, args.n_shots, args.verbose_histograms, args.print_every, args.decode_mode, args.workers, args.threads)
         for stim_file in stim_files
     ]
 
@@ -476,7 +477,7 @@ if __name__ == "__main__":
 
     else:
         for stim_file in stim_files:
-            result = analyse_one_circuit(stim_file, n_shots=args.n_shots, verbose_histograms=args.verbose_histograms, print_every=args.print_every, decode_mode=args.decode_mode, workers=args.workers)
+            result = analyse_one_circuit(stim_file, n_shots=args.n_shots, verbose_histograms=args.verbose_histograms, print_every=args.print_every, decode_mode=args.decode_mode, workers=args.workers, threads=args.threads)
             _write_summary_csv(args.output_csv, asdict(result))
             print(f"Saved summary to : {args.output_csv}")
 

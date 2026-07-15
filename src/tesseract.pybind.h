@@ -108,7 +108,7 @@ void add_tesseract_module(py::module& root) {
                  If True, enables a beam climbing heuristic.
              no_revisit_dets : bool, default=False
                  If True, prevents the decoder from revisiting a syndrome pattern more than once.
-             
+
              verbose : bool, default=False
                  If True, enables verbose logging from the decoder.
               merge_errors : bool, default=True
@@ -151,7 +151,7 @@ void add_tesseract_module(py::module& root) {
                 If True, enables a beam climbing heuristic.
             no_revisit_dets : bool, default=False
                 If True, prevents the decoder from revisiting a syndrome pattern more than once.
-            
+
             verbose : bool, default=False
                 If True, enables verbose logging from the decoder.
              merge_errors : bool, default=True
@@ -444,13 +444,11 @@ void add_tesseract_module(py::module& root) {
     )pbdoc")
       .def(
           "decode_batch",
-          [](TesseractDecoder& self, const py::array_t<bool>& syndromes) {
-            // Check the dimensions of the `syndromes` argument.
+          [](TesseractDecoder& self, const py::array_t<bool>& syndromes, size_t num_threads) {
             if (syndromes.ndim() != 2) {
               throw std::runtime_error("Input syndromes must be a 2D NumPy array.");
             }
 
-            // Retrieve the number of shots, detectors and the syndrome patterns.
             auto syndromes_unchecked = syndromes.unchecked<2>();
             size_t num_shots = syndromes_unchecked.shape(0);
             size_t num_detectors = syndromes_unchecked.shape(1);
@@ -463,30 +461,37 @@ void add_tesseract_module(py::module& root) {
               throw std::invalid_argument(msg);
             }
 
-            // Allocate the result array.
+            std::vector<stim::SparseShot> shots;
+            shots.reserve(num_shots);
+            for (size_t i = 0; i < num_shots; ++i) {
+              stim::SparseShot shot;
+              for (size_t j = 0; j < num_detectors; ++j) {
+                if (syndromes_unchecked(i, j)) {
+                  shot.hits.push_back(j);
+                }
+              }
+              shots.push_back(std::move(shot));
+            }
+
+            std::vector<std::vector<int>> obs_predicted;
+            {
+              py::gil_scoped_release release;
+              self.decode_shots(shots, obs_predicted, num_threads);
+            }
+
             py::array_t<bool> result({num_shots, self.num_observables});
             result.attr("fill")(0);
             auto result_unchecked = result.mutable_unchecked<2>();
 
-            // Process and decode each shot.
-            for (size_t i = 0; i < num_shots; ++i) {
-              std::vector<uint64_t> detections;
-              for (size_t j = 0; j < num_detectors; ++j) {
-                if (syndromes_unchecked(i, j)) {
-                  detections.push_back(j);
-                }
-              }
-              self.decode(detections);
-
-              // Collect results for the current shot being decoded.
-              for (int obs_index : self.get_flipped_observables(self.predicted_errors_buffer)) {
+            for (size_t i = 0; i < obs_predicted.size(); ++i) {
+              for (int obs_index : obs_predicted[i]) {
                 result_unchecked(i, obs_index) ^= 1;
               }
             }
 
             return result;
           },
-          py::arg("syndromes"),
+          py::arg("syndromes"), py::arg("threads") = 1,
           R"pbdoc(
         Decodes a batch of shots.
 

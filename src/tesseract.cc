@@ -23,6 +23,7 @@
 #include <iostream>
 #include <limits>
 #include <numeric>
+#include <thread>
 
 namespace {
 
@@ -662,6 +663,40 @@ void TesseractDecoder::decode_shots(std::vector<stim::SparseShot>& shots,
   obs_predicted.resize(shots.size());
   for (size_t i = 0; i < shots.size(); ++i) {
     obs_predicted[i] = decode(shots[i].hits);
+  }
+}
+
+void TesseractDecoder::decode_shots(std::vector<stim::SparseShot>& shots,
+                                    std::vector<std::vector<int>>& obs_predicted,
+                                    size_t num_threads) {
+  if (num_threads <= 1 || shots.size() <= 1) {
+    decode_shots(shots, obs_predicted);
+    return;
+  }
+  obs_predicted.resize(shots.size());
+  size_t thread_count = std::min(num_threads, shots.size());
+  std::vector<std::thread> threads;
+  threads.reserve(thread_count);
+
+  auto worker = [&](size_t start, size_t end) {
+    TesseractDecoder local_decoder(config);
+    for (size_t i = start; i < end; ++i) {
+      obs_predicted[i] = local_decoder.decode(shots[i].hits);
+    }
+  };
+
+  size_t chunk = (shots.size() + thread_count - 1) / thread_count;
+  for (size_t t = 0; t < thread_count; ++t) {
+    size_t start = t * chunk;
+    size_t end = std::min(start + chunk, shots.size());
+    if (start >= end) {
+      continue;
+    }
+    threads.emplace_back(worker, start, end);
+  }
+
+  for (auto& thread : threads) {
+    thread.join();
   }
 }
 
