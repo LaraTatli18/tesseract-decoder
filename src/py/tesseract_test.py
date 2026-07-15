@@ -464,6 +464,30 @@ def test_decoder_compilation_validation():
     with pytest.raises(ValueError, match="sparsify_max_degree must be >= sparsify_base_degree"):
         config.compile_decoder()
 
+def test_decode_batch_threads_matches_serial():
+    dem = stim.DetectorErrorModel("""
+            error(0.125) D0 L0
+            error(0.375) D0 D1
+            error(0.25) D1
+        """)
+    config = tesseract_decoder.tesseract.TesseractConfig(dem)
+    decoder = config.compile_decoder()
+
+    syndromes = np.array(
+        [
+            [False, False],
+            [True, False],
+            [False, True],
+            [True, True],
+        ],
+
+        dtype=bool,
+    )
+
+    serial = decoder.decode_batch(syndromes, threads=1)
+    threaded = decoder.decode_batch(syndromes, threads=4)
+    np.testing.assert_array_equal(serial, threaded)
+
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__]))

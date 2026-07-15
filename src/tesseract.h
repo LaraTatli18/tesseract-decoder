@@ -102,6 +102,9 @@ struct TesseractDecoder {
 
   std::vector<int> decode(const std::vector<uint64_t>& detections);
   void decode_shots(std::vector<stim::SparseShot>& shots,
+                  std::vector<std::vector<int>>& obs_predicted);
+
+  void decode_shots(std::vector<stim::SparseShot>& shots,
                     std::vector<std::vector<int>>& obs_predicted,
                     size_t num_threads);
 

@@ -289,6 +289,8 @@ def analyse_one_circuit(stim_path: Path, n_shots: int, verbose_histograms: bool,
     print("=" * 100)
     print(f"Decode mode      : {decode_mode}")
     print(f"Circuit workers  : {workers}")
+    print(f"Decoder threads  : {threads}")
+    print()
     print(f"Shots analysed          : {n_shots}")
     print(f"Correct decodings       : {correct}")
     print(f"Logical failures        : {logical_failures}")
