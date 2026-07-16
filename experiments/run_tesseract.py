@@ -107,7 +107,7 @@ def _git_is_clean() -> bool:
 
 def _build_run_name(args: argparse.Namespace) -> str:
     """Create a short, filesystem-friendly run directory name."""
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y-%m-%d")
     return (
         f"{timestamp}_"
         f"{args.basis}_"
@@ -594,15 +594,18 @@ if __name__ == "__main__":
         p_values=set(args.p_values),
     )
 
+    if args.max_files is not None:
+        stim_files = stim_files[: args.max_files]
+
+    # =====================================
+    # CREATE RUN DIRECTORY/MANIFEST
+    # =====================================
     run_dir, manifest_path = _make_run_directory(args)
     args.output_csv = run_dir / "results.csv"
 
     manifest = _build_manifest(args, args.output_csv)
     _write_manifest(manifest_path, manifest)
 
-    # if args.max_files is not None:
-    #     stim_files = stim_files[: args.max_files]
-    #
     # if args.output_csv is None:
     #     run_dir, manifest_path = _make_run_directory(args)
     #     args.output_csv = run_dir / "results.csv"
@@ -621,6 +624,9 @@ if __name__ == "__main__":
         # )  # ADD AUTOTUNING PARAMS TO NAMES
         # args.output_csv = ROOT / "experiments" / "results" / default_name
 
+    print(f"Run directory     : {run_dir}")
+    print(f"Saved results     : {args.output_csv}")
+    print(f"Saved manifest    : {manifest_path}")
     print(f"Found {len(stim_files)} circuits.\n")
 
     tasks = [
@@ -643,11 +649,10 @@ if __name__ == "__main__":
         with ProcessPoolExecutor(max_workers=args.workers) as pool:
             for result in pool.map(_worker, tasks):
                 _write_summary_csv(args.output_csv, asdict(result))
-                print(f"Saved results    : {args.output_csv}")
-                print(f"Saved manifest   : {manifest_path}")
 
     else:
-        for stim_file in stim_files:
+        for i, stim_file in enumerate(stim_files, start=1):
+            print(f"Starting circuit {i}/{len(stim_files)}: {stim_file.name}")
             result = analyse_one_circuit(stim_file,
                                          n_shots=args.n_shots,
                                          verbose_histograms=args.verbose_histograms,
@@ -661,7 +666,6 @@ if __name__ == "__main__":
                                          pqlimit=args.pqlimit,
                                          det_penalty=args.det_penalty)
             _write_summary_csv(args.output_csv, asdict(result))
-            print(f"Saved results    : {args.output_csv}")
-            print(f"Saved manifest   : {manifest_path}")
+            print(f"Finished circuit {i}/{len(stim_files)}\n")
 
         print()
