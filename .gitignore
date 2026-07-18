@@ -40,7 +40,7 @@ src/tesseract_decoder*.so
 
 MODULE.bazel.lock
 
-# Ignore benchmark outputs/experimental plots
+# Ignore benchmark outputs/experimental plots.
 experiments/runs/
 experiments/results/
 experiments/archive/results/
@@ -48,3 +48,7 @@ experiments/plots/*.png
 experiments/plots/**/*.png
 logs/
 *.log
+
+# Ignore Python virtual environment.
+.venv/
+venv/
