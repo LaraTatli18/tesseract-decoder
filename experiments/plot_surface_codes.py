@@ -37,39 +37,10 @@ plt.legend()
 plt.tight_layout()
 
 out = ROOT / "experiments" / "logical_error_rate_10kshots.png"
-plt.savefig(out, dpi=200)
+plt.savefig(out, dpi=300)
 print(f"Saved plot to {out}")
 
-# plt.figure(figsize=(6,4))
-#
-# plt.plot(
-#     df["physical_error_rate"],
-#     df["logical_error_rate"],
-#     marker="o",
-# )
-#
-# plt.xlabel("Physical error rate")
-# plt.ylabel("Logical error rate")
-# plt.title("Tesseract decoder performance")
-#
-# plt.grid(True)
-#
-# plt.show()
-#
-# plt.figure(figsize=(6,4))
-#
-# plt.plot(
-#     df["physical_error_rate"],
-#     df["mean_correction_size"],
-#     marker="o",
-# )
-#
-# plt.xlabel("Physical error rate")
-# plt.ylabel("Mean correction size")
-#
-# plt.grid(True)
-#
-# plt.show()
+
 
 
 

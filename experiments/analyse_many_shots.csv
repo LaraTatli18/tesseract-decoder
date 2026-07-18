@@ -1,8 +1,0 @@
-stim_file,rounds,distance,physical_error_rate,noise_model,code,num_qubits,gates,n_shots,num_detectors,num_observables,dem_entries,correct_decodings,logical_failures,decoder_accuracy,logical_error_rate,low_confidence_rate,mean_syndrome_weight,mean_correction_size,mean_correction_cost
-"r=3,d=3,p=0.001,noise=si1000,c=surface_code_X,q=17,gates=cz.stim",3,3,0.001,si1000,surface_code_X,17,cz,1000,24,1,333,997,3,0.997,0.003,0.0,0.611,0.355,1.8847609290670657
-"r=11,d=11,p=0.0001,noise=si1000,c=surface_code_X,q=241,gates=cz.stim",11,11,0.0001,si1000,surface_code_X,241,cz,10000,1320,1,4168,10000,0,1.0,0.0,0.0,4.6322,2.0819,16.903358650971658
-"r=11,d=11,p=0.0001,noise=si1000,c=surface_code_Z,q=241,gates=cz.stim",11,11,0.0001,si1000,surface_code_Z,241,cz,10000,1320,1,4164,10000,0,1.0,0.0,0.0,4.5609,2.0503,16.676069716548284
-"r=11,d=11,p=0.0005,noise=si1000,c=surface_code_X,q=241,gates=cz.stim",11,11,0.0005,si1000,surface_code_X,241,cz,10000,1320,1,4168,10000,0,1.0,0.0,0.0,22.9358,10.3267,67.40570068651311
-"r=11,d=11,p=0.0001,noise=si1000,c=surface_code_X,q=241,gates=cz.stim",11,11,0.0001,si1000,surface_code_X,241,cz,1000,1320,1,4168,1000,0,1.0,0.0,0.0,4.737,2.102,17.1420519294028
-"r=11,d=11,p=0.0001,noise=si1000,c=surface_code_Z,q=241,gates=cz.stim",11,11,0.0001,si1000,surface_code_Z,241,cz,1000,1320,1,4164,1000,0,1.0,0.0,0.0,4.573,2.032,16.613588491153692
-"r=11,d=11,p=0.0005,noise=si1000,c=surface_code_X,q=241,gates=cz.stim",11,11,0.0005,si1000,surface_code_X,241,cz,1000,1320,1,4168,1000,0,1.0,0.0,0.0,22.649,10.231,66.73342752421867
