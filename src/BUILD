@@ -97,6 +97,7 @@ py_library(
     deps=[
         ":tesseract_decoder",
         "//src/py/_tesseract_py_util:_tesseract_py_util",
+        "//experiments:experiments_utils",
     ],
 )
 
