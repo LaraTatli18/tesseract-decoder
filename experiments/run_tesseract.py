@@ -10,7 +10,7 @@ import time
 
 from tesseract_decoder import tesseract
 
-from benchmark_utils import (
+from experiments.benchmark_utils import (
     BenchmarkResult,
     DecodeStatistics,
     _per_round_error_rate,
@@ -21,7 +21,7 @@ from benchmark_utils import (
     parse_stim_filename,
 )
 
-from run_manifest import (
+from experiments.run_manifest import (
     make_run_directory,
     build_manifest,
     write_manifest,
