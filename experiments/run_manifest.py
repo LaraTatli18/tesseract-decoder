@@ -36,7 +36,7 @@ def _git_is_clean() -> bool:
 
 def _build_run_name(args: argparse.Namespace) -> str:
     """Create a short, filesystem-friendly run directory name."""
-    timestamp = datetime.now().strftime("%Y-%m-%d")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
     return (
         f"{timestamp}_"
         f"{args.basis}_"
