@@ -228,7 +228,7 @@ def main() -> int:
     parser.add_argument(
         "--n-shots",
         type=int,
-        default=100000,
+        default=None
         help="Shot count to filter on.",
     )
     parser.add_argument(
