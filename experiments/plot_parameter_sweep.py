@@ -228,7 +228,7 @@ def main() -> int:
     parser.add_argument(
         "--n-shots",
         type=int,
-        default=None
+        default=None,
         help="Shot count to filter on.",
     )
     parser.add_argument(
@@ -247,6 +247,28 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # Expand experiment directories into individual run directories.
+    expanded_run_dirs: list[Path] = []
+
+    for path in args.run_dirs:
+        manifest = path / "manifest.json"
+        results = path / "results.csv"
+
+        # If this is already a run directory, keep it.
+        if manifest.exists() and results.exists():
+            expanded_run_dirs.append(path)
+            continue
+
+        # Otherwise, treat it as an experiment directory and collect all runs.
+        for child in sorted(path.iterdir()):
+            if not child.is_dir():
+                continue
+            if (child / "manifest.json").exists() and (
+                child / "results.csv").exists():
+                expanded_run_dirs.append(child)
+
+    args.run_dirs = expanded_run_dirs
+
     grouped, run_records = _group_runs_by_parameter(args.run_dirs, args)
     if not grouped:
         print("No matching runs found.")
@@ -256,7 +278,7 @@ def main() -> int:
 
     points = [_summarise_group(param, runs) for param, runs in sorted(grouped.items(), key=lambda kv: kv[0])]
 
-    print("parameter,mean_logical_error_rate_per_round,mean_decode_time_seconds,mean_shots_per_second,run_count")
+    print("parameter,mean_decode_time_seconds,mean_shots_per_second,run_count")
     for point in points:
         print(
             f"{point.parameter_value:g},"
@@ -269,8 +291,25 @@ def main() -> int:
     decode_time = [p.mean_decode_time_seconds for p in points]
     throughput = [p.mean_shots_per_second for p in points]
 
-    decode_time_png = args.output_dir / f"{args.parameter}_sweep_decode_time.png"
-    throughput_png = args.output_dir / f"{args.parameter}_sweep_throughput.png"
+    shots = (
+        f"{args.n_shots // 1_000_000}M"
+        if args.n_shots and args.n_shots >= 1_000_000
+        else f"{args.n_shots // 1_000}k"
+        if args.n_shots
+        else f"{int(points[0].manifests[0]['n_shots']) // 1000}k"
+    )
+
+    basis = points[0].manifests[0]["basis"]
+
+    decode_time_png = (
+        args.output_dir
+        / f"{args.parameter}_{shots}_{basis}_decode_time.png"
+    )
+
+    throughput_png = (
+        args.output_dir
+        / f"{args.parameter}_{shots}_{basis}_throughput.png"
+    )
 
     _save_plot(
         x,

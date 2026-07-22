@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,54 @@ def _load_result_rows(results_path: Path) -> list[dict[str, str]]:
     with results_path.open(newline="") as f:
         reader = csv.DictReader(f)
         return list(reader)
+
+def _format_shot_count(n_shots: int) -> str:
+    if n_shots >= 1_000_000:
+        return f"{n_shots // 1_000_000}M"
+    if n_shots >= 1_000:
+        return f"{n_shots // 1_000}k"
+    return str(n_shots)
+
+
+def _create_plot_run(
+    parameter: str,
+    basis: str,
+    n_shots: int,
+    run_dirs: list[Path],
+    script_name: str,
+) -> Path:
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    shots = _format_shot_count(n_shots)
+
+    output_dir = (
+        Path("experiments/plots")
+        / f"{timestamp}_{parameter}_{shots}_{basis}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=False)
+
+    manifest = {
+        "timestamp": timestamp,
+        "plot_script": script_name,
+        "parameter": parameter,
+        "basis": basis,
+        "n_shots": n_shots,
+        "run_dirs": [str(r) for r in run_dirs],
+    }
+
+    with (output_dir / "manifest.json").open("w") as f:
+        json.dump(manifest, f, indent=4)
+
+    return output_dir
+
+
+def _make_plot_filename(
+    parameter: str,
+    basis: str,
+    n_shots: int,
+    distance: int,
+) -> str:
+    shots = _format_shot_count(n_shots)
+    return f"{parameter}_{shots}_{basis}_d{distance}.png"
 
 
 def _check_manifests_consistent(
@@ -135,7 +184,12 @@ def _plot_distance(
             for r in rows
         ]
 
-        plt.plot(x, y, marker="o", label=f"{parameter}={beam_value:g}")
+        if parameter == "beam_climbing":
+            label = "Beam climbing ON" if beam_value else "Beam climbing OFF"
+        else:
+            label = f"{parameter}={beam_value:g}"
+
+        plt.plot(x, y, marker="o", label=label)
 
     plt.xlabel("Physical error rate")
     plt.ylabel("Logical error rate per round")
@@ -146,7 +200,12 @@ def _plot_distance(
     plt.tight_layout()
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    out = output_dir / f"{parameter}_sweep_d{distance}_logical_error_rate.png"
+    out = output_dir / _make_plot_filename(
+        parameter,
+        basis,
+        n_shots,
+        distance,
+    )
     plt.savefig(out, dpi=300)
     plt.close()
     return out
@@ -195,14 +254,23 @@ def main() -> int:
             if row_count:
                 print(f"{distance},{run.beam_value:g},{row_count}")
 
+    output_dir = _create_plot_run(
+        parameter=args.parameter,
+        basis=basis,
+        n_shots=n_shots,
+        run_dirs=args.run_dirs,
+        script_name=Path(__file__).name,
+    )
+
     saved_paths: list[Path] = []
+
     for distance in distances:
         saved_paths.append(
             _plot_distance(
                 distance=distance,
                 runs=runs,
                 parameter=args.parameter,
-                output_dir=args.output_dir,
+                output_dir=output_dir,
                 n_shots=n_shots,
                 basis=basis,
             )

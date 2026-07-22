@@ -46,6 +46,7 @@ experiments/results/
 experiments/archive/results/
 experiments/plots/*.png
 experiments/plots/**/*.png
+experiments/plots/**/manifest.json
 logs/
 *.log
 
