@@ -45,6 +45,7 @@ experiments/runs/
 experiments/results/
 experiments/archive/results/
 experiments/plots/*.png
+experiments/plots/**/*.csv
 experiments/plots/**/*.png
 experiments/plots/**/manifest.json
 logs/
