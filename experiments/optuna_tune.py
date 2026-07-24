@@ -52,7 +52,7 @@ def objective(trial):
 
 def main():
     study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=4)
+    study.optimize(objective, n_trials=30)
     print("Best params: ", study.best_params)
     print("Best value: ", study.best_value)
 
