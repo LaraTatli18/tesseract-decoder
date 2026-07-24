@@ -303,6 +303,12 @@ if __name__ == "__main__":
         help="Directory containing .stim files.",
     )
     parser.add_argument(
+        "--run-group",
+        type=str,
+        default=None,
+        help="Optional subdirectory under experiments/runs, e.g. for Optuna."
+    )
+    parser.add_argument(
         "--verbose-histograms",
         action="store_true",
     )
@@ -392,7 +398,7 @@ if __name__ == "__main__":
     # =====================================
     # CREATE RUN DIRECTORY/MANIFEST
     # =====================================
-    run_dir, manifest_path = make_run_directory(args)
+    run_dir, manifest_path = make_run_directory(args, run_group=args.run_group)
     args.output_csv = run_dir / "results.csv"
 
     manifest = build_manifest(args, args.output_csv)

@@ -51,11 +51,22 @@ def _build_run_name(args: argparse.Namespace) -> str:
     )
 
 
-def make_run_directory(args: argparse.Namespace) -> tuple[Path, Path]:
+def make_run_directory(
+    args: argparse.Namespace,
+    run_group: str | None = None,
+) -> tuple[Path, Path]:
     """Create the run directory and return (run_dir, manifest_path)."""
+
     run_name = _build_run_name(args)
-    run_dir = ROOT / "experiments" / "runs" / run_name
+
+    runs_root = ROOT / "experiments" / "runs"
+
+    if run_group is not None:
+        runs_root = runs_root / run_group
+
+    run_dir = runs_root / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
+
     manifest_path = run_dir / "manifest.json"
     return run_dir, manifest_path
 
