@@ -12,6 +12,7 @@ STIM_FILE = ROOT / "testdata" / "surfacecodes" / "r=11,d=11,p=0.002,noise=si1000
 def run_trial(det_beam: int, beam_climbing: bool) -> float:
     cmd = [
         "bazel", "run", "//src/py:run_tesseract", "--",
+        "--run-group", "optuna",
         "--n-shots", "50000",
         "--decode-mode", "batch",
         "--workers", "1",
@@ -32,13 +33,13 @@ def run_trial(det_beam: int, beam_climbing: bool) -> float:
         raise RuntimeError(f"Could not find run directory in output:\n{proc.stdout}")
 
     run_dir = Path(m.group(1).strip())
-    results_csv = run_dir / "optuna_results.csv"
+    results_csv = run_dir / "results.csv"
 
     with results_csv.open(newline="") as f:
         rows = list(csv.DictReader(f))
 
     if not rows:
-        raise RuntimeError("optuna_results.csv is empty")
+        raise RuntimeError("results.csv is empty")
 
     return float(rows[0]["logical_error_rate_per_round"])
 
