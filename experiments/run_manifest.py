@@ -40,11 +40,11 @@ def _build_run_name(args: argparse.Namespace) -> str:
     return (
         f"{timestamp}_"
         f"{args.basis}_"
-        f"{args.decode_mode}_"
         f"{args.n_shots}shots_"
         f"{args.workers}workers_"
         f"{args.threads}threads_"
         f"beam{args.det_beam}_"
+        f"pq{args.pqlimit}_"
         f"bc{int(args.beam_climbing)}_"
         f"me{int(args.merge_errors)}"
 
