@@ -54,3 +54,6 @@ logs/
 # Ignore Python virtual environment.
 .venv/
 venv/
+
+# Ignore Dissertation plan.
+dissertation_outline.md

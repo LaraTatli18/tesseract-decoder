@@ -49,6 +49,20 @@ def objective(trial):
     beam_climbing = trial.suggest_categorical("beam_climbing", [False, True])
     return run_trial(det_beam, beam_climbing)
 
+# print("\nBest trial")
+# print(f"Value: {study.best_value}")
+# print(f"Params: {study.best_params}")
+#
+# print("\nTop 10 trials:")
+#
+# best = sorted(study.trials, key=lambda t: t.value)
+#
+# for t in best[:10]:
+#     print(
+#         t.value,
+#         t.params,
+#     )
+
 
 def main():
     study = optuna.create_study(direction="minimize")
