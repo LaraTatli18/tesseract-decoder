@@ -72,11 +72,34 @@ def parse_args():
 
     return parser.parse_args()
 
+def generate_combinations(args):
+    combos = list(itertools.product(
+        args.distances,
+        args.beams,
+        args.p_values,
+        args.pqlimits,
+    ))
+    return combos
+
 
 def main():
-    args = parse_args()
-    print(args)
 
+    args = parse_args()
+    combos = generate_combinations(args)
+    print(f"{len(combos)} parameter combinations\n")
+
+    for i, (d, beam, p, pq) in enumerate(combos):
+        print(
+            f"{i:2d}: "
+            f"d={d:<2} "
+            f"beam={beam:<3} "
+            f"p={p:<6} "
+            f"pq={pq}"
+        )
+
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
