@@ -23,6 +23,10 @@ def parse_args():
 
     parser.add_argument("--shots", type=int, required=True)
 
+    parser.add_argument(
+        "--basis",
+        default="surface_code_X")
+
     parser.add_argument("--distances",
                         type=int,
                         nargs="+",
@@ -45,7 +49,7 @@ def parse_args():
 
     parser.add_argument("--threads",
                         type=int,
-                        default=32)
+                        default=64)
 
     parser.add_argument("--workers",
                         type=int,
@@ -53,7 +57,7 @@ def parse_args():
 
     parser.add_argument("--parallel",
                         type=int,
-                        default=12)
+                        default=16)
 
     parser.add_argument("--partition",
                         default="medium")
@@ -115,8 +119,6 @@ def write_slurm_script(args, combos):
 
     source .venv/bin/activate
 
-    mkdir -p /tmp/$USER-bazel-root
-
     DISTANCES=({distances})
     BEAMS=({beams})
     PVALUES=({pvalues})
@@ -137,22 +139,21 @@ def write_slurm_script(args, combos):
     echo "pqlimit  = $PQLIMIT"
     echo "======================================================"
 
-    bazel --output_user_root=/tmp/$USER-bazel-root \\
-      run //src/py:run_tesseract -- \\
-      --n-shots {args.shots} \\
-      --max-files 1 \\
-      --workers {args.workers} \\
-      --threads {args.threads} \\
-      --decode-mode batch \\
-      --basis surface_code_X \\
-      --distances $DIST \\
-      --p-values $PVALUE \\
-      --det-beam $BEAM \\
-      --beam-climbing \\
-      --merge-errors \\
-      --pqlimit $PQLIMIT \\
-      --run-group {args.run_group}
-    """)
+    ./bazel-bin/src/py/run_tesseract \
+      --n-shots {args.shots} \
+      --max-files 1 \
+      --workers {args.workers} \
+      --threads {args.threads} \
+      --decode-mode batch \
+      --basis {args.basis} \
+      --distances $DIST \
+      --p-values $PVALUE \
+      --det-beam $BEAM \
+      --beam-climbing \
+      --merge-errors \
+      --pqlimit $PQLIMIT \
+      --run-group {args.run_group} """)
+
 
     script.write_text(text)
     script.chmod(0o755)
