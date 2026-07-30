@@ -82,24 +82,95 @@ def generate_combinations(args):
     return combos
 
 
+def write_slurm_script(args, combos):
+
+    script = JOB_DIR / f"{args.run_group}.sh"
+
+    n = len(combos)
+
+    distances = " ".join(str(c[0]) for c in combos)
+    beams = " ".join(str(c[1]) for c in combos)
+    pvalues = " ".join(str(c[2]) for c in combos)
+    pqlimits = " ".join(str(c[3]) for c in combos)
+
+    text = dedent(f"""\
+    #!/bin/bash
+    #SBATCH --job-name={args.run_group}
+    #SBATCH --partition={args.partition}
+    #SBATCH --time={args.time}
+    #SBATCH --cpus-per-task={args.threads}
+    #SBATCH --mem={args.memory}
+    #SBATCH --array=0-{n-1}%{args.parallel}
+
+    #SBATCH --output={LOG_DIR}/{args.run_group}_%A_%a.out
+    #SBATCH --error={LOG_DIR}/{args.run_group}_%A_%a.err
+
+    set -euo pipefail
+
+    cd "{ROOT}"
+
+    module purge
+    module load Python/3.13.5-GCCcore-14.3.0
+    module load Bazel/7.7.0-GCCcore-14.3.0-Java-21
+
+    source .venv/bin/activate
+
+    mkdir -p /tmp/$USER-bazel-root
+
+    DISTANCES=({distances})
+    BEAMS=({beams})
+    PVALUES=({pvalues})
+    PQLIMITS=({pqlimits})
+
+    IDX=$SLURM_ARRAY_TASK_ID
+
+    DIST=${{DISTANCES[$IDX]}}
+    BEAM=${{BEAMS[$IDX]}}
+    PVALUE=${{PVALUES[$IDX]}}
+    PQLIMIT=${{PQLIMITS[$IDX]}}
+
+    echo "======================================================"
+    echo "Task $IDX"
+    echo "distance = $DIST"
+    echo "beam     = $BEAM"
+    echo "p        = $PVALUE"
+    echo "pqlimit  = $PQLIMIT"
+    echo "======================================================"
+
+    bazel --output_user_root=/tmp/$USER-bazel-root \\
+      run //src/py:run_tesseract -- \\
+      --n-shots {args.shots} \\
+      --max-files 1 \\
+      --workers {args.workers} \\
+      --threads {args.threads} \\
+      --decode-mode batch \\
+      --basis surface_code_X \\
+      --distances $DIST \\
+      --p-values $PVALUE \\
+      --det-beam $BEAM \\
+      --beam-climbing \\
+      --merge-errors \\
+      --pqlimit $PQLIMIT \\
+      --run-group {args.run_group}
+    """)
+
+    script.write_text(text)
+    script.chmod(0o755)
+
+    return script
+
 def main():
 
     args = parse_args()
     combos = generate_combinations(args)
-    print(f"{len(combos)} parameter combinations\n")
 
-    for i, (d, beam, p, pq) in enumerate(combos):
-        print(
-            f"{i:2d}: "
-            f"d={d:<2} "
-            f"beam={beam:<3} "
-            f"p={p:<6} "
-            f"pq={pq}"
-        )
+    print(f"{len(combos)} jobs")
+    script = write_slurm_script(args, combos)
 
+    print()
+    print("Generated:")
+    print(script)
 
-if __name__ == "__main__":
-    main()
 
 if __name__ == "__main__":
     main()
