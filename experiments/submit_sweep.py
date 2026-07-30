@@ -49,7 +49,7 @@ def parse_args():
 
     parser.add_argument("--threads",
                         type=int,
-                        default=64)
+                        default=32)
 
     parser.add_argument("--workers",
                         type=int,
