@@ -51,6 +51,10 @@ class BenchmarkResult:  # Schema for result from ONE CIRCUIT
     merge_errors: bool
     pqlimit: int
     det_penalty: float
+    sparsify_errors: bool
+    sparsify_base_degree: int
+    sparsify_max_degree: int
+    sparsify_reactivate_limit: int
 
 
 def parse_stim_filename(stim_path: Path) -> dict[str, str]:

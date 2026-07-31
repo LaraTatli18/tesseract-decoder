@@ -125,7 +125,11 @@ def analyse_one_circuit(stim_path: Path,
                         beam_climbing: bool,
                         merge_errors: bool,
                         pqlimit: int,
-                        det_penalty: float) -> BenchmarkResult:
+                        det_penalty: float,
+                        sparsify_errors: bool,
+                        sparsify_base_degree: int,
+                        sparsify_max_degree: int,
+                        sparsify_reactivate_limit: int) -> BenchmarkResult:
     print("=" * 100)
     print(f"Analysing circuit: {stim_path.name}")
     print("=" * 100)
@@ -141,7 +145,12 @@ def analyse_one_circuit(stim_path: Path,
                                        verbose=False,
                                        merge_errors=merge_errors,
                                        pqlimit=pqlimit,
-                                       det_penalty=det_penalty)
+                                       det_penalty=det_penalty,
+                                       sparsify_errors=sparsify_errors,
+                                       sparsify_base_degree=sparsify_base_degree,
+                                       sparsify_max_degree=sparsify_max_degree,
+                                       sparsify_reactivate_limit=sparsify_reactivate_limit
+                                       )
 
     decoder = config.compile_decoder()
 
@@ -247,14 +256,18 @@ def analyse_one_circuit(stim_path: Path,
         beam_climbing=beam_climbing,
         merge_errors=merge_errors,
         pqlimit=pqlimit,
-        det_penalty=det_penalty
+        det_penalty=det_penalty,
+        sparsify_errors=sparsify_errors,
+        sparsify_base_degree=sparsify_base_degree,
+        sparsify_max_degree=sparsify_max_degree,
+        sparsify_reactivate_limit=sparsify_reactivate_limit
     )
 
     return result
 
 
-def _worker(task: tuple[Path, int, bool, int, str, int, int, int, bool, bool, int, float]) -> BenchmarkResult:
-    stim_path, n_shots, verbose_histograms, print_every, decode_mode, workers, threads, det_beam, beam_climbing, merge_errors, pqlimit, det_penalty = task
+def _worker(task: tuple[Path, int, bool, int, str, int, int, int, bool, bool, int, float, bool, int, int, int]) -> BenchmarkResult:
+    stim_path, n_shots, verbose_histograms, print_every, decode_mode, workers, threads, det_beam, beam_climbing, merge_errors, pqlimit, det_penalty, sparsify_errors, sparsify_base_degree, sparsify_max_degree, sparsify_reactivate_limit = task
     print(f"Starting circuit: {stim_path.name}")
     result = analyse_one_circuit(stim_path,
                                  n_shots,
@@ -267,7 +280,11 @@ def _worker(task: tuple[Path, int, bool, int, str, int, int, int, bool, bool, in
                                  beam_climbing,
                                  merge_errors,
                                  pqlimit,
-                                 det_penalty)
+                                 det_penalty,
+                                 sparsify_errors,
+                                 sparsify_base_degree,
+                                 sparsify_max_degree,
+                                 sparsify_reactivate_limit)
     print(f"Finished circuit: {stim_path.name}")
     return result
 
@@ -382,6 +399,30 @@ if __name__ == "__main__":
         default=0.0,
         help="Penalty parameter that adds a cost for each residual detection event."
     )
+    parser.add_argument(
+        "--sparsify_errors",
+        action=BooleanOptionalAction,
+        default=False,
+        help="Enable per-shot sparse error activation."
+    )
+    parser.add_argument(
+        "--sparsify-base-degree",
+        type=int,
+        default=1,
+        help="Maximum detector degree for mandatory errors."
+    )
+    parser.add_argument(
+        "--sparsify-max-degree",
+        type=int,
+        default=-1,
+        help="Maximum detector degree for optional errors that may be reactivated.",
+    )
+    parser.add_argument(
+        "--sparsify-reactivate-limit",
+        type=int,
+        default=-1,
+        help="Maximum number of optional errors to reactivate per shot. Use -1 for auto.",
+    )
 
     args = parser.parse_args()
 
@@ -421,7 +462,11 @@ if __name__ == "__main__":
          args.beam_climbing,
          args.merge_errors,
          args.pqlimit,
-         args.det_penalty)
+         args.det_penalty,
+         args.sparsify_errors,
+         args.sparsify_base_degree,
+         args.sparsify_max_degree,
+         args.sparsify_reactivate_limit)
         for stim_file in stim_files
     ]
 
@@ -444,7 +489,11 @@ if __name__ == "__main__":
                                          beam_climbing=args.beam_climbing,
                                          merge_errors=args.merge_errors,
                                          pqlimit=args.pqlimit,
-                                         det_penalty=args.det_penalty)
+                                         det_penalty=args.det_penalty,
+                                         sparsify_errors=args.sparsify_errors,
+                                         sparsify_base_degree=args.sparsify_base_degree,
+                                         sparsify_max_degree=args.sparsify_max_degree,
+                                         sparsify_reactivate_limit=args.sparsify_reactivate_limit)
             _write_summary_csv(args.output_csv, result)
             print(f"Finished circuit {i}/{len(stim_files)}\n")
 

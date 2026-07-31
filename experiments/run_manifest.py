@@ -46,8 +46,8 @@ def _build_run_name(args: argparse.Namespace) -> str:
         f"beam{args.det_beam}_"
         f"pq{args.pqlimit}_"
         f"bc{int(args.beam_climbing)}_"
-        f"me{int(args.merge_errors)}"
-
+        f"me{int(args.merge_errors)}_"
+        f"sp{int(args.sparsify_errors)}"
     )
 
 
@@ -96,6 +96,10 @@ def build_manifest(args: argparse.Namespace, output_csv: Path) -> dict[str, Any]
         "merge_errors": args.merge_errors,
         "pqlimit": args.pqlimit,
         "det_penalty": args.det_penalty,
+        "sparsify_errors": args.sparsify_errors,
+        "sparsify_base_degree": args.sparsify_base_degree,
+        "sparsify_max_degree": args.sparsify_max_degree,
+        "sparsify_reactivate_limit": args.sparsify_reactivate_limit
     }
 
 
