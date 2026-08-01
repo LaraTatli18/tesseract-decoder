@@ -16,6 +16,9 @@ class ParameterSweepPoint:
     parameter_value: float
     mean_decode_time_seconds: float
     mean_shots_per_second: float
+    mean_logical_error_rate_per_round: float
+    mean_logical_error_rate_per_round_ci_low: float
+    mean_logical_error_rate_per_round_ci_high: float
     run_dirs: list[Path]
     manifests: list[dict[str, Any]]
 
@@ -49,6 +52,14 @@ def _matches_filters(manifest: dict[str, Any], args: argparse.Namespace) -> bool
     if args.distances is not None and _as_float_list(manifest.get("distances", [])) != [float(d) for d in args.distances]:
         return False
     if args.p_values is not None and _as_float_list(manifest.get("p_values", [])) != [float(p) for p in args.p_values]:
+        return False
+    if args.sparsify_errors is not None and manifest.get("sparsify_errors") != args.sparsify_errors:
+        return False
+    if args.sparsify_base_degree is not None and int(manifest.get("sparsify_base_degree", -999999)) != args.sparsify_base_degree:
+        return False
+    if args.sparsify_max_degree is not None and int(manifest.get("sparsify_max_degree", -999999)) != args.sparsify_max_degree:
+        return False
+    if args.sparsify_reactivate_limit is not None and int(manifest.get("sparsify_reactivate_limit", -999999)) != args.sparsify_reactivate_limit:
         return False
     return True
 
@@ -132,9 +143,11 @@ def _summarise_group(
     parameter_value: float,
     runs: list[tuple[Path, dict[str, Any], list[dict[str, str]]]],
 ) -> ParameterSweepPoint:
-    ler_values: list[float] = []
     decode_time_values: list[float] = []
     throughput_values: list[float] = []
+    quality_values: list[float] = []
+    quality_ci_low_values: list[float] = []
+    quality_ci_high_values: list[float] = []
     run_dirs: list[Path] = []
     manifests: list[dict[str, Any]] = []
 
@@ -142,17 +155,35 @@ def _summarise_group(
         run_dirs.append(run_dir)
         manifests.append(manifest)
         for row in rows:
-            ler_values.append(float(row["logical_error_rate_per_round"]))
+            rounds = float(row["rounds"])
             decode_time_values.append(float(row["decode_time_seconds"]))
             throughput_values.append(float(row["shots_per_second"]))
+            quality_values.append(float(row["logical_error_rate_per_round"]))
+            if "logical_error_rate_ci_low" in row and "logical_error_rate_ci_high" in row:
+                quality_ci_low_values.append(float(row["logical_error_rate_ci_low"]) / rounds)
+                quality_ci_high_values.append(float(row["logical_error_rate_ci_high"]) / rounds)
+            else:
+                quality_ci_low_values.append(float(row["logical_error_rate_per_round"]))
+                quality_ci_high_values.append(float(row["logical_error_rate_per_round"]))
 
     return ParameterSweepPoint(
         parameter_value=parameter_value,
         mean_decode_time_seconds=fmean(decode_time_values),
         mean_shots_per_second=fmean(throughput_values),
+        mean_logical_error_rate_per_round=fmean(quality_values),
+        mean_logical_error_rate_per_round_ci_low=fmean(quality_ci_low_values),
+        mean_logical_error_rate_per_round_ci_high=fmean(quality_ci_high_values),
         run_dirs=run_dirs,
         manifests=manifests,
     )
+
+
+def _parameter_tick_label(value: float, parameter_name: str) -> str:
+    if parameter_name in {"sparsify_errors", "merge_errors", "beam_climbing"} and value in (0.0, 1.0):
+        return "on" if value else "off"
+    if float(value).is_integer():
+        return f"{int(value)}"
+    return f"{value:g}"
 
 
 def _save_plot(
@@ -168,11 +199,41 @@ def _save_plot(
     plt.figure(figsize=(7, 4))
     plt.plot(x, y, marker="o")
     for xi, yi in zip(x, y):
-        plt.annotate(f"{xi:g}", (xi, yi), textcoords="offset points", xytext=(0, 8), ha="center")
+        plt.annotate(_parameter_tick_label(xi, xlabel), (xi, yi), textcoords="offset points", xytext=(0, 8), ha="center")
     plt.xlabel(xlabel)
     plt.ylabel(ylabel)
     plt.title(title)
     plt.yscale(yscale)
+    plt.grid(True, which="both", linestyle="--", alpha=0.4)
+    plt.tight_layout()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output, dpi=300)
+    plt.close()
+
+
+def _save_errorbar_plot(
+    x: list[float],
+    y: list[float],
+    yerr_low: list[float],
+    yerr_high: list[float],
+    *,
+    xlabel: str,
+    ylabel: str,
+    title: str,
+    output: Path,
+    yscale: str = "linear",
+    yscale_kwargs: dict[str, Any] | None = None,
+) -> None:
+    plt.figure(figsize=(7, 4))
+    plt.errorbar(x, y, yerr=[yerr_low, yerr_high], marker="o", capsize=4)
+    for xi, yi in zip(x, y):
+        plt.annotate(_parameter_tick_label(xi, xlabel), (xi, yi), textcoords="offset points", xytext=(0, 8), ha="center")
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.title(title)
+    if yscale_kwargs is None:
+        yscale_kwargs = {}
+    plt.yscale(yscale, **yscale_kwargs)
     plt.grid(True, which="both", linestyle="--", alpha=0.4)
     plt.tight_layout()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -245,26 +306,46 @@ def main() -> int:
         default=None,
         help="Optional p-value filter. If omitted, do not filter by p-values.",
     )
+    parser.add_argument(
+        "--sparsify-errors",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Optional sparsification filter.",
+    )
+    parser.add_argument(
+        "--sparsify-base-degree",
+        type=int,
+        default=None,
+        help="Optional sparsify base-degree filter.",
+    )
+    parser.add_argument(
+        "--sparsify-max-degree",
+        type=int,
+        default=None,
+        help="Optional sparsify max-degree filter.",
+    )
+    parser.add_argument(
+        "--sparsify-reactivate-limit",
+        type=int,
+        default=None,
+        help="Optional sparsify reactivate-limit filter.",
+    )
     args = parser.parse_args()
 
-    # Expand experiment directories into individual run directories.
     expanded_run_dirs: list[Path] = []
 
     for path in args.run_dirs:
         manifest = path / "manifest.json"
         results = path / "results.csv"
 
-        # If this is already a run directory, keep it.
         if manifest.exists() and results.exists():
             expanded_run_dirs.append(path)
             continue
 
-        # Otherwise, treat it as an experiment directory and collect all runs.
         for child in sorted(path.iterdir()):
             if not child.is_dir():
                 continue
-            if (child / "manifest.json").exists() and (
-                child / "results.csv").exists():
+            if (child / "manifest.json").exists() and (child / "results.csv").exists():
                 expanded_run_dirs.append(child)
 
     args.run_dirs = expanded_run_dirs
@@ -275,21 +356,36 @@ def main() -> int:
         return 1
 
     _check_manifests_consistent(run_records, args.parameter)
+    print(
+        expanded_run_dirs.name,
+        manifest["threads"],
+        manifest["basis"],
+        manifest["p_values"],
+        manifest["distances"],
+        manifest.get("sparsify_errors"),
+    )
 
     points = [_summarise_group(param, runs) for param, runs in sorted(grouped.items(), key=lambda kv: kv[0])]
 
-    print("parameter,mean_decode_time_seconds,mean_shots_per_second,run_count")
+    print(
+        "parameter,mean_decode_time_seconds,mean_shots_per_second,"
+        "mean_logical_error_rate_per_round,run_count"
+    )
     for point in points:
         print(
             f"{point.parameter_value:g},"
             f"{point.mean_decode_time_seconds:.6f},"
             f"{point.mean_shots_per_second:.2f},"
+            f"{point.mean_logical_error_rate_per_round:.8e},"
             f"{len(point.run_dirs)}"
         )
 
     x = [p.parameter_value for p in points]
     decode_time = [p.mean_decode_time_seconds for p in points]
     throughput = [p.mean_shots_per_second for p in points]
+    quality = [p.mean_logical_error_rate_per_round for p in points]
+    quality_low = [p.mean_logical_error_rate_per_round_ci_low for p in points]
+    quality_high = [p.mean_logical_error_rate_per_round_ci_high for p in points]
 
     shots = (
         f"{args.n_shots // 1_000_000}M"
@@ -301,15 +397,9 @@ def main() -> int:
 
     basis = points[0].manifests[0]["basis"]
 
-    decode_time_png = (
-        args.output_dir
-        / f"{args.parameter}_{shots}_{basis}_decode_time.png"
-    )
-
-    throughput_png = (
-        args.output_dir
-        / f"{args.parameter}_{shots}_{basis}_throughput.png"
-    )
+    decode_time_png = args.output_dir / f"{args.parameter}_{shots}_{basis}_decode_time.png"
+    throughput_png = args.output_dir / f"{args.parameter}_{shots}_{basis}_throughput.png"
+    logical_err_rate_per_round_png = args.output_dir / f"{args.parameter}_{shots}_{basis}_logical_error_rate_per_round.png"
 
     _save_plot(
         x,
@@ -327,10 +417,23 @@ def main() -> int:
         title=f"{args.parameter} sweep: throughput",
         output=throughput_png,
     )
+    _save_errorbar_plot(
+        x,
+        quality,
+        [max(0.0, q - lo) for q, lo in zip(quality, quality_low)],
+        [max(0.0, hi - q) for q, hi in zip(quality, quality_high)],
+        xlabel=args.parameter,
+        ylabel="Logical error rate / round",
+        title=f"{args.parameter} sweep: decoder quality",
+        output=logical_err_rate_per_round_png,
+        yscale="symlog",
+        yscale_kwargs={"linthresh": 1e-7},
+    )
 
     print()
     print(f"Saved: {decode_time_png}")
     print(f"Saved: {throughput_png}")
+    print(f"Saved: {logical_err_rate_per_round_png}")
     return 0
 
 
