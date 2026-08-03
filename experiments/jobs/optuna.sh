@@ -11,12 +11,16 @@ set -euo pipefail
 
 cd ~/tesseract-decoder
 
+#module purge
+#module load Python/3.13.5-GCCcore-14.3.0
+#module load Bazel/7.7.0-GCCcore-14.3.0-Java-21
+
 source .venv/bin/activate
 
 echo "Starting Optuna study..."
 date
 
-python experiments/optuna_tune.py
+python experiments/optuna_tune.py "$@"
 
 echo "Finished."
 date
