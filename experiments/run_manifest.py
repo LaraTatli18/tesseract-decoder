@@ -40,6 +40,8 @@ def _build_run_name(args: argparse.Namespace) -> str:
     return (
         f"{timestamp}_"
         f"{args.basis}_"
+        f"d{args.distances[0]}_"
+        f"p{args.p_values[0]}_"
         f"{args.n_shots}shots_"
         f"{args.workers}workers_"
         f"{args.threads}threads_"
