@@ -21,9 +21,9 @@ DEFAULT_DET_BEAM_CANDIDATES = [5, 10, 20, 50, 100]
 DEFAULT_PQLIMIT_CANDIDATES = [100_000, 200_000, 400_000, 800_000, 1_600_000]
 DEFAULT_WORKERS_CANDIDATES = [1, 2, 4]
 DEFAULT_THREADS_CANDIDATES = [16, 32, 48, 64]
-DEFAULT_SPARSIFY_BASE_DEGREE_CANDIDATES = [1, 2, 3, 4]
-DEFAULT_SPARSIFY_MAX_DEGREE_CANDIDATES = [-1, 3, 4, 5, 6, 7, 8]
-DEFAULT_SPARSIFY_REACTIVATE_LIMIT_CANDIDATES = [-1, 32, 64, 128, 256]
+DEFAULT_SPARSIFY_BASE_DEGREE_CANDIDATES = [1, 2, 3]
+DEFAULT_SPARSIFY_MAX_DEGREE_CANDIDATES = [-1, 4, 6, 8]
+DEFAULT_SPARSIFY_REACTIVATE_LIMIT_CANDIDATES = [-1, 32, 64, 128]
 
 
 @dataclass(frozen=True)
@@ -293,14 +293,26 @@ def _suggest_params(trial: optuna.Trial, args: argparse.Namespace) -> TrialParam
             if args.tune_sparsify_base_degree
             else args.sparsify_base_degree
         )
-        sparsify_max_degree = (
-            trial.suggest_categorical(
+
+        if args.tune_sparsify_max_degree:
+            # run_tesseract requires sparsify_max_degree >= sparsify_base_degree.
+            # Filter the search space so Optuna never proposes an invalid pair.
+            max_degree_candidates = [
+                candidate
+                for candidate in args.sparsify_max_degree_candidates
+                if candidate >= sparsify_base_degree
+            ]
+            if not max_degree_candidates:
+                max_degree_candidates = [sparsify_base_degree]
+            sparsify_max_degree = trial.suggest_categorical(
                 "sparsify_max_degree",
-                args.sparsify_max_degree_candidates,
+                max_degree_candidates,
             )
-            if args.tune_sparsify_max_degree
-            else args.sparsify_max_degree
-        )
+        else:
+            sparsify_max_degree = args.sparsify_max_degree
+            if sparsify_max_degree < sparsify_base_degree:
+                sparsify_max_degree = sparsify_base_degree
+
         sparsify_reactivate_limit = (
             trial.suggest_categorical(
                 "sparsify_reactivate_limit",
