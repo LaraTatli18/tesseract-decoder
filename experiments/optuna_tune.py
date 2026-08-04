@@ -481,6 +481,18 @@ def _objective_scalar(
 
     metrics = _run_single_case(case, params, args, trial)
 
+    if (
+        metrics.mean_logical_error_rate_per_round
+        > args.max_logical_error_rate_per_round
+    ):
+        print(
+            f"Trial {trial.number}: "
+            f"rejected (LER/round = "
+            f"{metrics.mean_logical_error_rate_per_round:.3e})",
+            flush=True,
+        )
+        raise optuna.TrialPruned()
+
     trial.set_user_attr("params", asdict(params))
     trial.set_user_attr("mean_decode_time_seconds", metrics.mean_decode_time_seconds)
     trial.set_user_attr("mean_shots_per_second", metrics.mean_shots_per_second)
@@ -522,6 +534,18 @@ def _objective_pareto(
     )
 
     metrics = _run_single_case(case, params, args, trial)
+
+    if (
+        metrics.mean_logical_error_rate_per_round
+        > args.max_logical_error_rate_per_round
+    ):
+        print(
+            f"Trial {trial.number}: "
+            f"rejected (LER/round = "
+            f"{metrics.mean_logical_error_rate_per_round:.3e})",
+            flush=True,
+        )
+        raise optuna.TrialPruned()
 
     trial.set_user_attr("params", asdict(params))
     trial.set_user_attr("mean_decode_time_seconds", metrics.mean_decode_time_seconds)
@@ -583,6 +607,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--basis", type=str, default="surface_code_X", help="Code basis to benchmark.")
     parser.add_argument("--distance", type=int, default=11, help="Single distance used for this study.")
     parser.add_argument("--p-value", type=float, default=0.002, help="Single physical error rate used for this study.")
+    parser.add_argument(
+        "--max-logical-error-rate-per-round",
+        type=float,
+        default=5e-5,
+        help=(
+            "Reject trials whose logical error rate per round exceeds this threshold."
+        ),
+    )
     parser.add_argument(
         "--stim-dir",
         type=Path,
