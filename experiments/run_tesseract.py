@@ -156,6 +156,7 @@ def analyse_one_circuit(stim_path: Path,
 
     print(f"Detector count         : {decoder.num_detectors}")
     print(f"Observable count       : {decoder.num_observables}")
+    print(f"Requested reactivation limit: {sparsify_reactivate_limit}") # using this because TesseractConfig doesn't currently expose a sparsify_reactive_limit attribute to the Python bindings
     print()
 
     sampler = circuit.compile_detector_sampler()
