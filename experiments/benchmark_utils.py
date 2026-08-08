@@ -60,9 +60,45 @@ class BenchmarkResult:  # Schema for result from ONE CIRCUIT
 def parse_stim_filename(stim_path: Path) -> dict[str, str]:
     metadata: dict[str, str] = {}
     stem = stim_path.stem
-    for item in stem.split(","):
+
+    items: list[str] = []
+    current: list[str] = []
+    bracket_depth = 0
+
+    for char in stem:
+        if char in "[({":
+            bracket_depth += 1
+        elif char in "])}":
+            bracket_depth -= 1
+            if bracket_depth < 0:
+                raise ValueError(
+                    f"Unbalanced brackets in Stim filename: {stim_path.name}"
+                )
+
+        if char == "," and bracket_depth == 0:
+            items.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+
+    if bracket_depth != 0:
+        raise ValueError(
+            f"Unbalanced brackets in Stim filename: {stim_path.name}"
+        )
+
+    if current:
+        items.append("".join(current))
+
+    for item in items:
+        if "=" not in item:
+            raise ValueError(
+                f"Malformed metadata field {item!r} "
+                f"in Stim filename: {stim_path.name}"
+            )
+
         key, value = item.split("=", maxsplit=1)
         metadata[key] = value
+
     return metadata
 
 

@@ -135,7 +135,7 @@ def analyse_one_circuit(stim_path: Path,
     print("=" * 100)
 
     circuit = stim.Circuit.from_file(stim_path)
-    dem = circuit.detector_error_model(decompose_errors=True)
+    dem = circuit.detector_error_model(decompose_errors=True, ignore_decomposition_failures=True)
     dem_entries = sum(1 for _ in dem)
     metadata = parse_stim_filename(stim_path)
 

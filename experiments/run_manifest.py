@@ -73,17 +73,20 @@ def make_run_directory(
     return run_dir, manifest_path
 
 
-def build_manifest(args: argparse.Namespace, output_csv: Path) -> dict[str, Any]:
+def build_manifest(
+    args: argparse.Namespace,
+    output_csv: Path,
+    circuit_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Build a JSON-serialisable manifest for this run."""
-    return {
+    manifest = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "host": socket.gethostname(),
         "cwd": str(Path.cwd()),
         "git_branch": _git_value(["git", "branch", "--show-current"]),
         "git_commit": _git_value(["git", "rev-parse", "HEAD"]),
         "working_tree_clean": _git_is_clean(),
-        "command": ["bazel", "run", "//src/py:run_tesseract", "--",
-                    *sys.argv[1:]],
+        "command": ["bazel", "run", "//src/py:run_tesseract", "--", *sys.argv[1:]],
         "output_csv": str(output_csv),
         "stim_dir": str(args.stim_dir),
         "basis": args.basis,
@@ -101,8 +104,15 @@ def build_manifest(args: argparse.Namespace, output_csv: Path) -> dict[str, Any]
         "sparsify_errors": args.sparsify_errors,
         "sparsify_base_degree": args.sparsify_base_degree,
         "sparsify_max_degree": args.sparsify_max_degree,
-        "sparsify_reactivate_limit": args.sparsify_reactivate_limit
+        "sparsify_reactivate_limit": args.sparsify_reactivate_limit,
     }
+
+    if circuit_metadata is not None:
+        manifest["circuit_metadata"] = {
+            key: value for key, value in circuit_metadata.items() if value is not None
+        }
+
+    return manifest
 
 
 def write_manifest(manifest_path: Path, manifest: dict[str, Any]) -> None:
