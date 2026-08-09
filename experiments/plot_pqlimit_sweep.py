@@ -16,6 +16,12 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+LINE_METRICS = [
+    ("logical_error_rate_per_round", "Logical error rate per round", "logical_error_rate", True),
+    ("decode_time_seconds", "Decode time (s)", "decode_time", False),
+    ("shots_per_second", "Shots per second", "throughput", False),
+]
+
 from plot_utils import (
     collect_plot_runs,
     expand_run_dirs,
@@ -29,6 +35,7 @@ from plot_utils import (
 
 @dataclass(frozen=True)
 class PQLimitSweepRun:
+    run_dir: Path
     distance: int
     physical_error_rate: float
     det_beam: float
@@ -63,6 +70,7 @@ def _collect_runs(
             try:
                 runs.append(
                     PQLimitSweepRun(
+                        run_dir=run.run_dir,
                         distance=int(row["distance"]),
                         physical_error_rate=float(
                             row["physical_error_rate"]
@@ -89,6 +97,39 @@ def _collect_runs(
                 continue
 
     return runs
+
+
+def _keep_latest_runs(
+    runs: list[PQLimitSweepRun],
+) -> list[PQLimitSweepRun]:
+    """Keep only the latest complete run for each benchmark configuration. This is useful if we have duplicates."""
+    latest: dict[
+        tuple[int, float, float, float],
+        PQLimitSweepRun,
+    ] = {}
+
+    for run in runs:
+        key = (
+            run.distance,
+            run.physical_error_rate,
+            run.det_beam,
+            run.pqlimit,
+        )
+
+        previous = latest.get(key)
+
+        if previous is None or run.run_dir.name > previous.run_dir.name:
+            latest[key] = run
+
+    removed = len(runs) - len(latest)
+
+    if removed:
+        print(
+            f"Collapsed {removed} duplicate result rows "
+            "by keeping the latest run for each configuration."
+        )
+
+    return list(latest.values())
 
 
 def _aggregate_runs(
@@ -144,124 +185,6 @@ def _aggregate_runs(
 
     return aggregated
 
-
-def _geometric_edges(
-    values: list[float],
-) -> np.ndarray:
-    vals = sorted(values)
-
-    if len(vals) == 1:
-        v = vals[0]
-        return np.array(
-            [
-                v / np.sqrt(10.0),
-                v * np.sqrt(10.0),
-            ]
-        )
-
-    edges = [
-        vals[0]
-        / np.sqrt(vals[1] / vals[0])
-    ]
-
-    for i in range(1, len(vals)):
-        edges.append(
-            np.sqrt(
-                vals[i - 1] * vals[i]
-            )
-        )
-
-    edges.append(
-        vals[-1]
-        * np.sqrt(
-            vals[-1] / vals[-2]
-        )
-    )
-
-    return np.array(edges)
-
-
-def _linear_edges(
-    values: list[float],
-) -> np.ndarray:
-    vals = sorted(values)
-
-    if len(vals) == 1:
-        v = vals[0]
-        return np.array(
-            [
-                v - 0.5,
-                v + 0.5,
-            ]
-        )
-
-    edges = [
-        vals[0]
-        - (vals[1] - vals[0]) / 2
-    ]
-
-    for i in range(1, len(vals)):
-        edges.append(
-            (
-                vals[i - 1]
-                + vals[i]
-            )
-            / 2
-        )
-
-    edges.append(
-        vals[-1]
-        + (
-            vals[-1]
-            - vals[-2]
-        )
-        / 2
-    )
-
-    return np.array(edges)
-
-
-def _compute_global_heatmap_scale(
-    aggregated: dict[
-        tuple[int, float, float, float],
-        dict[str, float],
-    ],
-) -> tuple[float, float]:
-    values: list[float] = []
-
-    for stats in aggregated.values():
-        n_shots = int(
-            stats["n_shots"]
-        )
-
-        floor = half_shot_floor(n_shots)
-
-        value = max(
-            stats[
-                "logical_error_rate_per_round"
-            ],
-            floor,
-        )
-
-        values.append(
-            np.log10(value)
-        )
-
-    if not values:
-        raise ValueError(
-            "No data available to compute heatmap scale"
-        )
-
-    vmin = min(values)
-    vmax = max(values)
-
-    if vmin == vmax:
-        vmin -= 1e-12
-        vmax += 1e-12
-
-    return vmin, vmax
-
-
 def _plot_line_cross_sections(
     aggregated: dict[
         tuple[int, float, float, float],
@@ -271,6 +194,11 @@ def _plot_line_cross_sections(
     p_value: float,
     basis: str,
     output_dir: Path,
+    metric_key: str,
+    metric_label: str,
+    metric_slug: str,
+    floor_to_half_shot: bool = False,
+    yscale: str = "log",
 ) -> Path:
     distances = sorted(
         {
@@ -320,42 +248,29 @@ def _plot_line_cross_sections(
         nrows=len(distances),
         ncols=1,
         figsize=(
-            9.5,
-            2.5 * len(distances),
+            10,
+            4.0 * len(distances),
         ),
         sharex=True,
-        sharey=True,
+        sharey=False,
     )
 
     if len(distances) == 1:
         axes = [axes]
 
-    colours = list(
-        plt.get_cmap("tab10").colors
-    )
-
+    colours = list(plt.get_cmap("tab10").colors)
     colour_for_beam = {
-        beam: colours[
-            i % len(colours)
-        ]
-        for i, beam
-        in enumerate(beams)
+        beam: colours[i % len(colours)]
+        for i, beam in enumerate(beams)
     }
 
     n_shots = int(
-        next(
-            iter(
-                aggregated.values()
-            )
-        )["n_shots"]
+        next(iter(aggregated.values()))["n_shots"]
     )
 
-    floor = half_shot_floor(n_shots)
+    floor = half_shot_floor(n_shots) if floor_to_half_shot else None
 
-    for ax, distance in zip(
-        axes,
-        distances,
-    ):
+    for ax, distance in zip(axes, distances):
         for beam in beams:
             xs: list[float] = []
             ys: list[float] = []
@@ -373,14 +288,10 @@ def _plot_line_cross_sections(
 
                 xs.append(pq)
 
-                ys.append(
-                    max(
-                        aggregated[key][
-                            "logical_error_rate_per_round"
-                        ],
-                        floor,
-                    )
-                )
+                value = aggregated[key][metric_key]
+                if floor is not None:
+                    value = max(value, floor)
+                ys.append(value)
 
             if xs:
                 ax.plot(
@@ -389,381 +300,49 @@ def _plot_line_cross_sections(
                     marker="o",
                     markersize=4,
                     linewidth=2,
-                    color=colour_for_beam[
-                        beam
-                    ],
-                    label=(
-                        f"Beam "
-                        f"{int(beam)}"
-                    ),
+                    color=colour_for_beam[beam],
+                    label=f"Beam {int(beam)}",
                 )
 
         ax.set_xscale("log")
-        ax.set_yscale("log")
+        ax.set_yscale(yscale)
         ax.minorticks_on()
+        ax.grid(True, which="major", linestyle="--", alpha=0.3)
+        ax.grid(True, which="minor", linestyle=":", alpha=0.15)
+        ax.set_title(f"d = {distance}", fontsize=12)
 
-        ax.grid(
-            True,
-            which="major",
-            linestyle="--",
-            alpha=0.3,
-        )
+    axes[-1].set_xlabel("Priority queue limit")
+    axes[0].set_ylabel(metric_label)
 
-        ax.grid(
-            True,
-            which="minor",
-            linestyle=":",
-            alpha=0.15,
-        )
-
-        ax.set_title(
-            f"d = {distance}",
-            fontsize=12,
-        )
-
-    axes[-1].set_xlabel(
-        "Priority queue limit"
-    )
-
-    axes[0].set_ylabel(
-        "Logical error rate per round"
-    )
-
-    handles, labels = (
-        axes[0]
-        .get_legend_handles_labels()
-    )
-
+    handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(
         handles,
         labels,
         loc="upper center",
-        bbox_to_anchor=(
-            0.5,
-            0.99,
-        ),
+        bbox_to_anchor=(0.5, 0.99),
         ncol=3,
         frameon=False,
         fontsize=9,
     )
 
     fig.suptitle(
-        f"{basis} – "
-        f"Priority queue sweep "
-        f"(p = {p_value:g})",
+        f"{basis} – Priority queue sweep ({metric_label}, p = {p_value:g})",
         fontsize=14,
     )
-
-    fig.tight_layout(
-        rect=[
-            0,
-            0,
-            1,
-            0.95,
-        ]
-    )
+    fig.tight_layout(rect=[0, 0, 1, 0.95])
 
     out = (
         output_dir
         / (
             f"{basis}_"
             f"{format_p_value(p_value)}_"
-            f"line_cross_sections.png"
+            f"{metric_slug}_line_cross_sections.png"
         )
     )
 
-    save_figure(
-        fig,
-        out,
-    )
-
+    save_figure(fig, out)
     plt.close(fig)
-
     return out
-
-
-def _plot_heatmaps(
-    aggregated: dict[
-        tuple[int, float, float, float],
-        dict[str, float],
-    ],
-    *,
-    p_value: float,
-    basis: str,
-    output_dir: Path,
-    abs_vmin: float,
-    abs_vmax: float,
-    relative: bool = False,
-) -> Path:
-    distances = sorted(
-        {
-            distance
-            for (
-                distance,
-                p,
-                _,
-                _,
-            ) in aggregated
-            if p == p_value
-        }
-    )
-
-    beams = sorted(
-        {
-            beam
-            for (
-                _,
-                p,
-                beam,
-                _,
-            ) in aggregated
-            if p == p_value
-        }
-    )
-
-    pqlimits = sorted(
-        {
-            pq
-            for (
-                _,
-                p,
-                _,
-                pq,
-            ) in aggregated
-            if p == p_value
-        }
-    )
-
-    if not distances:
-        raise ValueError(
-            f"No data found for p={p_value:g}"
-        )
-
-    fig, axes = plt.subplots(
-        nrows=len(distances),
-        ncols=1,
-        figsize=(
-            8.5,
-            2.8 * len(distances),
-        ),
-        sharex=True,
-    )
-
-    if len(distances) == 1:
-        axes = [axes]
-
-    cmap = (
-        plt.get_cmap("magma")
-        .copy()
-    )
-
-    cmap.set_bad(
-        "lightgrey"
-    )
-
-    x_edges = _geometric_edges(
-        pqlimits
-    )
-
-    y_edges = _linear_edges(
-        beams
-    )
-
-    last_mesh = None
-
-    for ax, distance in zip(
-        axes,
-        distances,
-    ):
-        matrix = np.full(
-            (
-                len(beams),
-                len(pqlimits),
-            ),
-            np.nan,
-            dtype=float,
-        )
-
-        values: list[float] = []
-
-        for beam in beams:
-            for pq in pqlimits:
-                key = (
-                    distance,
-                    p_value,
-                    beam,
-                    pq,
-                )
-
-                if key not in aggregated:
-                    continue
-
-                stats = aggregated[key]
-
-                floor = half_shot_floor(stats["n_shots"])
-
-                values.append(
-                    max(
-                        stats[
-                            "logical_error_rate_per_round"
-                        ],
-                        floor,
-                    )
-                )
-
-        best = min(values)
-
-        for i, beam in enumerate(
-            beams
-        ):
-            for j, pq in enumerate(
-                pqlimits
-            ):
-                key = (
-                    distance,
-                    p_value,
-                    beam,
-                    pq,
-                )
-
-                if key not in aggregated:
-                    continue
-
-                stats = aggregated[key]
-
-                floor = half_shot_floor(stats["n_shots"])
-
-                value = max(
-                    stats[
-                        "logical_error_rate_per_round"
-                    ],
-                    floor,
-                )
-
-                if relative:
-                    matrix[i, j] = (
-                        np.log10(
-                            value / best
-                        )
-                    )
-                else:
-                    matrix[i, j] = (
-                        np.log10(
-                            value
-                        )
-                    )
-
-        masked = (
-            np.ma.masked_invalid(
-                matrix
-            )
-        )
-
-        if relative:
-            last_mesh = (
-                ax.pcolormesh(
-                    x_edges,
-                    y_edges,
-                    masked,
-                    shading="auto",
-                    cmap=cmap,
-                    vmin=0,
-                    vmax=np.nanmax(
-                        masked
-                    ),
-                )
-            )
-        else:
-            last_mesh = (
-                ax.pcolormesh(
-                    x_edges,
-                    y_edges,
-                    masked,
-                    shading="auto",
-                    cmap=cmap,
-                    vmin=abs_vmin,
-                    vmax=abs_vmax,
-                )
-            )
-
-        ax.set_xscale("log")
-        ax.set_ylabel("det_beam")
-        ax.set_yticks(beams)
-
-        ax.set_yticklabels(
-            [
-                f"{beam:g}"
-                for beam in beams
-            ]
-        )
-
-        ax.set_title(
-            f"d={distance}, "
-            f"p={p_value:g}",
-            fontsize=11,
-        )
-
-        ax.grid(False)
-
-    axes[-1].set_xlabel(
-        "Priority queue limit"
-    )
-
-    fig.subplots_adjust(
-        right=0.86
-    )
-
-    cbar = fig.colorbar(
-        last_mesh,
-        ax=axes,
-        fraction=0.04,
-        pad=0.02,
-    )
-
-    if relative:
-        cbar.set_label(
-            r"$\log_{10}"
-            r"(\mathrm{LER}/"
-            r"\mathrm{Best\ LER})$"
-        )
-    else:
-        cbar.set_label(
-            r"$\log_{10}"
-            r"(\mathrm{Logical\ Error\ Rate"
-            r"\ per\ Round})$"
-        )
-
-    fig.suptitle(
-        f"{basis} | "
-        f"p={p_value:g} | "
-        f"heatmaps",
-        y=0.995,
-    )
-
-    suffix = (
-        "relative_heatmaps"
-        if relative
-        else "heatmaps"
-    )
-
-    out = (
-        output_dir
-        / (
-            f"{basis}_"
-            f"{format_p_value(p_value)}_"
-            f"{suffix}.png"
-        )
-    )
-
-    save_figure(
-        fig,
-        out,
-    )
-
-    plt.close(fig)
-
-    return out
-
 
 def main() -> int:
     setup_matplotlib()
@@ -829,7 +408,7 @@ def main() -> int:
     parser.add_argument(
         "--threads",
         type=int,
-        default=64,
+        default=None,
         help=(
             "Decoder thread count "
             "to filter on."
@@ -913,14 +492,10 @@ def main() -> int:
         )
         return 1
 
+    runs = _keep_latest_runs(runs)
+
     aggregated = _aggregate_runs(
         runs
-    )
-
-    abs_vmin, abs_vmax = (
-        _compute_global_heatmap_scale(
-            aggregated
-        )
     )
 
     output_dir = args.output_dir
@@ -944,56 +519,23 @@ def main() -> int:
     )
 
     for p_value in p_values:
-        line_png = (
-            _plot_line_cross_sections(
+        for metric_key, metric_label, metric_slug, floor_to_half_shot in LINE_METRICS:
+            line_png = _plot_line_cross_sections(
                 aggregated,
                 p_value=p_value,
                 basis=args.basis,
                 output_dir=output_dir,
+                metric_key=metric_key,
+                metric_label=metric_label,
+                metric_slug=metric_slug,
+                floor_to_half_shot=floor_to_half_shot,
+                yscale="log",
             )
-        )
-
-        heatmap_png = (
-            _plot_heatmaps(
-                aggregated,
-                p_value=p_value,
-                basis=args.basis,
-                output_dir=output_dir,
-                abs_vmin=abs_vmin,
-                abs_vmax=abs_vmax,
-                relative=False,
+            print(
+                f"{p_value:g},"
+                f"{metric_slug},"
+                f"{line_png}"
             )
-        )
-
-        relative_png = (
-            _plot_heatmaps(
-                aggregated,
-                p_value=p_value,
-                basis=args.basis,
-                output_dir=output_dir,
-                abs_vmin=abs_vmin,
-                abs_vmax=abs_vmax,
-                relative=True,
-            )
-        )
-
-        print(
-            f"{p_value:g},"
-            f"line,"
-            f"{line_png}"
-        )
-
-        print(
-            f"{p_value:g},"
-            f"heatmap,"
-            f"{heatmap_png}"
-        )
-
-        print(
-            f"{p_value:g},"
-            f"relative_heatmap,"
-            f"{relative_png}"
-        )
 
     return 0
 
