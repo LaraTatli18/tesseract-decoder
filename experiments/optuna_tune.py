@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""Run Optuna-based parameter tuning for the Tesseract decoder.
+
+This script launches Tesseract benchmarks for each Optuna trial, evaluates runtime
+and logical-error-rate objectives, and records trial results and study metadata.
+"""
+
 import argparse
 import csv
 import json
@@ -9,8 +15,12 @@ from pathlib import Path
 from statistics import fmean
 from typing import Any
 
-import optuna
+from plot_utils import (
+    safe_filename_component,
+    format_p_value
+)
 
+import optuna
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS_ROOT = ROOT / "experiments" / "runs"
@@ -55,14 +65,6 @@ class TrialMetrics:
     mean_low_confidence_rate: float
 
 
-def _slugify(text: str) -> str:
-    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in text).strip("_")
-
-
-def _format_p_value(p: float) -> str:
-    return f"p{p:g}".replace(".", "p")
-
-
 def _jsonable(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
@@ -104,10 +106,10 @@ def _study_name(args: argparse.Namespace) -> str:
     if args.study_name:
         return args.study_name
     return (
-        f"{_slugify(args.basis)}_"
+        f"{safe_filename_component(args.basis)}_"
         f"{args.objective}_"
         f"d{args.distance}_"
-        f"{_format_p_value(args.p_value)}_"
+        f"{format_p_value(args.p_value)}_"
         f"beam{args.det_beam}_"
         f"pq{args.pqlimit}_"
         f"w{args.workers}_"
@@ -116,7 +118,7 @@ def _study_name(args: argparse.Namespace) -> str:
 
 
 def _study_dir(args: argparse.Namespace) -> Path:
-    return OPTUNA_RESULTS_ROOT / _slugify(_study_name(args))
+    return OPTUNA_RESULTS_ROOT / safe_filename_component(_study_name(args))
 
 
 def _write_study_manifest(study_dir: Path, args: argparse.Namespace) -> None:
@@ -347,7 +349,7 @@ def _run_single_case(
     trial: optuna.Trial,
 ) -> TrialMetrics:
     run_group = (
-        f"optuna/{_slugify(args.study_name)}/"
+        f"optuna/{safe_filename_component(args.study_name)}/"
         f"trial_{trial.number:04d}/"
         f"d{case.distance}_p{case.p_value:g}"
     )
