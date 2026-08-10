@@ -15,12 +15,9 @@ from pathlib import Path
 from statistics import fmean
 from typing import Any
 
-from plot_utils import (
-    safe_filename_component,
-    format_p_value
-)
-
 import optuna
+
+from plot_utils import format_p_value, safe_filename_component
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS_ROOT = ROOT / "experiments" / "runs"
@@ -135,6 +132,8 @@ def _write_study_manifest(study_dir: Path, args: argparse.Namespace) -> None:
         "stim_dir": args.stim_dir,
         "n_shots": args.n_shots,
         "max_files": args.max_files,
+        "max_logical_error_rate_per_round": args.max_logical_error_rate_per_round,
+        "max_trial_runtime_seconds": args.max_trial_runtime_seconds,
         "workers": args.workers,
         "threads": args.threads,
         "det_beam": args.det_beam,
@@ -410,10 +409,11 @@ def _run_single_case(
     ]
 
     print(
-        f"Trial {trial.number}: running d={case.distance}, p={case.p_value:g} "
-        f"with params={asdict(params)}",
+        f"Trial {trial.number + 1}/{args.n_trials}: "
+        f"running d={case.distance}, p={case.p_value:g}",
         flush=True,
     )
+    print(f"  params = {asdict(params)}", flush=True)
 
     try:
         proc = subprocess.run(
@@ -422,14 +422,40 @@ def _run_single_case(
             capture_output=True,
             text=True,
             check=True,
+            timeout=args.max_trial_runtime_seconds,
         )
     except subprocess.CalledProcessError as exc:
-        print(f"Trial {trial.number} failed.", flush=True)
+        print(f"Trial {trial.number + 1}/{args.n_trials}: PRUNED — subprocess failed", flush=True)
+        print(f"  return code = {exc.returncode}", flush=True)
         if exc.stdout:
             print(exc.stdout, flush=True)
         if exc.stderr:
             print(exc.stderr, flush=True)
-        raise
+
+        trial.set_user_attr("subprocess_failed", True)
+        trial.set_user_attr("subprocess_returncode", exc.returncode)
+        trial.set_user_attr("prune_reason", "subprocess_failure")
+        raise optuna.TrialPruned()
+
+    except subprocess.TimeoutExpired as exc:
+        print(
+            f"Trial {trial.number + 1}/{args.n_trials}: PRUNED — runtime limit exceeded",
+            flush=True,
+        )
+        print(
+            f"  limit = {args.max_trial_runtime_seconds:.0f} s "
+            f"({args.max_trial_runtime_seconds / 3600:.1f} h)",
+            flush=True,
+        )
+        if exc.stdout:
+            print(exc.stdout, flush=True)
+        if exc.stderr:
+            print(exc.stderr, flush=True)
+
+        trial.set_user_attr("timed_out", True)
+        trial.set_user_attr("max_trial_runtime_seconds", args.max_trial_runtime_seconds)
+        trial.set_user_attr("prune_reason", "runtime_timeout")
+        raise optuna.TrialPruned()
 
     run_group_dir = RUNS_ROOT / Path(run_group)
     results_csv = _find_results_csv(run_group_dir)
@@ -452,11 +478,30 @@ def _run_single_case(
     trial.set_user_attr("low_confidence_rate", low_confidence_rate)
 
     if args.verbose:
-        print(proc.stdout, flush=True)
+        if proc.stdout:
+            print(proc.stdout, flush=True)
+        if proc.stderr:
+            print(proc.stderr, flush=True)
 
     print(
-        f"Trial {trial.number}: done d={case.distance}, p={case.p_value:g} "
-        f"runtime={decode_time_seconds:.6f}s ler={logical_error_rate_per_round:.8e}",
+        f"Trial {trial.number + 1}/{args.n_trials}: completed",
+        flush=True,
+    )
+    print(
+        f"  runtime    = {decode_time_seconds:.1f} s "
+        f"({decode_time_seconds / 60:.1f} min)",
+        flush=True,
+    )
+    print(
+        f"  throughput = {shots_per_second:.2f} shots/s",
+        flush=True,
+    )
+    print(
+        f"  LER/round  = {logical_error_rate_per_round:.3e}",
+        flush=True,
+    )
+    print(
+        f"  LER limit  = {args.max_logical_error_rate_per_round:.3e}",
         flush=True,
     )
 
@@ -488,11 +533,19 @@ def _objective_scalar(
         > args.max_logical_error_rate_per_round
     ):
         print(
-            f"Trial {trial.number}: "
-            f"rejected (LER/round = "
-            f"{metrics.mean_logical_error_rate_per_round:.3e})",
+            f"Trial {trial.number + 1}/{args.n_trials}: "
+            f"PRUNED — quality threshold exceeded",
             flush=True,
         )
+        print(
+            f"  LER/round = {metrics.mean_logical_error_rate_per_round:.3e}",
+            flush=True,
+        )
+        print(
+            f"  limit     = {args.max_logical_error_rate_per_round:.3e}",
+            flush=True,
+        )
+        trial.set_user_attr("prune_reason", "logical_error_rate")
         raise optuna.TrialPruned()
 
     trial.set_user_attr("params", asdict(params))
@@ -542,11 +595,19 @@ def _objective_pareto(
         > args.max_logical_error_rate_per_round
     ):
         print(
-            f"Trial {trial.number}: "
-            f"rejected (LER/round = "
-            f"{metrics.mean_logical_error_rate_per_round:.3e})",
+            f"Trial {trial.number + 1}/{args.n_trials}: "
+            f"PRUNED — quality threshold exceeded",
             flush=True,
         )
+        print(
+            f"  LER/round = {metrics.mean_logical_error_rate_per_round:.3e}",
+            flush=True,
+        )
+        print(
+            f"  limit     = {args.max_logical_error_rate_per_round:.3e}",
+            flush=True,
+        )
+        trial.set_user_attr("prune_reason", "logical_error_rate")
         raise optuna.TrialPruned()
 
     trial.set_user_attr("params", asdict(params))
@@ -613,9 +674,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--max-logical-error-rate-per-round",
         type=float,
         default=5e-5,
-        help=(
-            "Reject trials whose logical error rate per round exceeds this threshold."
-        ),
+        help="Reject trials whose logical error rate per round exceeds this threshold.",
+    )
+    parser.add_argument(
+        "--max-trial-runtime-seconds",
+        type=float,
+        default=7200.0,
+        help="Stop and prune a trial if its benchmark subprocess exceeds this wall-clock time in seconds.",
     )
     parser.add_argument(
         "--stim-dir",
@@ -743,7 +808,21 @@ def main() -> int:
     study_dir = _study_dir(args)
     study_dir.mkdir(parents=True, exist_ok=True)
     _write_study_manifest(study_dir, args)
+
     print(f"Study outputs will be written to {study_dir}", flush=True)
+    print(
+        "Study configuration:\n"
+        f"  objective       = {args.objective}\n"
+        f"  benchmark       = {args.basis}, d={args.distance}, p={args.p_value:g}\n"
+        f"  trials          = {args.n_trials}\n"
+        f"  shots/trial     = {args.n_shots}\n"
+        f"  threads         = {args.threads}\n"
+        f"  max LER/round   = {args.max_logical_error_rate_per_round:.3e}\n"
+        f"  max runtime     = {args.max_trial_runtime_seconds:.0f} s\n"
+        f"  beam candidates = {args.det_beam_candidates if args.tune_det_beam else [args.det_beam]}\n"
+        f"  PQ candidates   = {args.pqlimit_candidates if args.tune_pqlimit else [args.pqlimit]}",
+        flush=True,
+    )
 
     if args.objective == "pareto":
         sampler = optuna.samplers.NSGAIISampler(seed=args.seed)
