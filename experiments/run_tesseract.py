@@ -233,7 +233,7 @@ def analyse_one_circuit(stim_path: Path,
         noise_model=metadata["noise"],
         code=metadata["c"],
         num_qubits=int(metadata["q"]),
-        gates=metadata["gates"],
+        gates=metadata.get("gates", ""),
         n_shots=n_shots,
         num_detectors=decoder.num_detectors,
         num_observables=decoder.num_observables,
@@ -261,7 +261,16 @@ def analyse_one_circuit(stim_path: Path,
         sparsify_errors=sparsify_errors,
         sparsify_base_degree=sparsify_base_degree,
         sparsify_max_degree=sparsify_max_degree,
-        sparsify_reactivate_limit=sparsify_reactivate_limit
+        sparsify_reactivate_limit=sparsify_reactivate_limit,
+        # Optional BB-code metadata
+        nkd=metadata.get("nkd"),
+        is_coloured=(
+            metadata["iscoloured"].lower() == "true"
+            if "iscoloured" in metadata
+            else None
+        ),
+        a_poly=metadata.get("A_poly"),
+        b_poly=metadata.get("B_poly"),
     )
 
     return result

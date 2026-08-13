@@ -55,6 +55,11 @@ class BenchmarkResult:  # Schema for result from ONE CIRCUIT
     sparsify_base_degree: int
     sparsify_max_degree: int
     sparsify_reactivate_limit: int
+    # optional bb code metadata:
+    nkd: str | None = None
+    is_coloured: bool | None = None
+    a_poly: str | None = None
+    b_poly: str | None = None
 
 
 def parse_stim_filename(stim_path: Path) -> dict[str, str]:
