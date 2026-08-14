@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import stim
 import time
+import hashlib
 
 from tesseract_decoder import tesseract
 
@@ -129,7 +130,9 @@ def analyse_one_circuit(stim_path: Path,
                         sparsify_errors: bool,
                         sparsify_base_degree: int,
                         sparsify_max_degree: int,
-                        sparsify_reactivate_limit: int) -> BenchmarkResult:
+                        sparsify_reactivate_limit: int,
+                        crn: bool,
+                        crn_seed: int) -> BenchmarkResult:
     print("=" * 100)
     print(f"Analysing circuit: {stim_path.name}")
     print("=" * 100)
@@ -159,9 +162,30 @@ def analyse_one_circuit(stim_path: Path,
     print(f"Requested reactivation limit: {sparsify_reactivate_limit}") # using this because TesseractConfig doesn't currently expose a sparsify_reactive_limit attribute to the Python bindings
     print()
 
-    sampler = circuit.compile_detector_sampler()
-    detections, observables = sampler.sample(shots=n_shots,
-                                             separate_observables=True)
+    if crn:
+        # Derive a deterministic per-circuit seed from the user-supplied CRN seed.
+        # This ensures that different decoder configurations applied to the same
+        # circuit receive identical sampled detector/observable data, while
+        # different circuits do not accidentally reuse the same random stream.
+        seed_material = f"{crn_seed}:{stim_path.name}".encode("utf-8")
+        circuit_seed = int.from_bytes(
+            hashlib.sha256(seed_material).digest()[:8],
+            byteorder="little",
+            signed=False,
+        )
+        sampler = circuit.compile_detector_sampler(seed=circuit_seed)
+        print(
+            f"CRN sampling enabled    : "
+            f"seed={crn_seed}, circuit_seed={circuit_seed}"
+        )
+    else:
+        # No CRN enabled; just using normal Monte Carlo sampling.
+        sampler = circuit.compile_detector_sampler()
+
+    detections, observables = sampler.sample(
+        shots=n_shots,
+        separate_observables=True,
+    )
 
     if decode_mode == "batch":
         stats = _analyse_batch_shots(decoder, detections, observables, threads)
@@ -276,8 +300,8 @@ def analyse_one_circuit(stim_path: Path,
     return result
 
 
-def _worker(task: tuple[Path, int, bool, int, str, int, int, int, bool, bool, int, float, bool, int, int, int]) -> BenchmarkResult:
-    stim_path, n_shots, verbose_histograms, print_every, decode_mode, workers, threads, det_beam, beam_climbing, merge_errors, pqlimit, det_penalty, sparsify_errors, sparsify_base_degree, sparsify_max_degree, sparsify_reactivate_limit = task
+def _worker(task: tuple[Path, int, bool, int, str, int, int, int, bool, bool, int, float, bool, int, int, int, bool, int]) -> BenchmarkResult:
+    stim_path, n_shots, verbose_histograms, print_every, decode_mode, workers, threads, det_beam, beam_climbing, merge_errors, pqlimit, det_penalty, sparsify_errors, sparsify_base_degree, sparsify_max_degree, sparsify_reactivate_limit, crn, crn_seed = task
     print(f"Starting circuit: {stim_path.name}")
     result = analyse_one_circuit(stim_path,
                                  n_shots,
@@ -294,7 +318,9 @@ def _worker(task: tuple[Path, int, bool, int, str, int, int, int, bool, bool, in
                                  sparsify_errors,
                                  sparsify_base_degree,
                                  sparsify_max_degree,
-                                 sparsify_reactivate_limit)
+                                 sparsify_reactivate_limit,
+                                 crn,
+                                 crn_seed)
     print(f"Finished circuit: {stim_path.name}")
     return result
 
@@ -433,6 +459,21 @@ if __name__ == "__main__":
         default=-1,
         help="Maximum number of optional errors to reactivate per shot. Use -1 for auto.",
     )
+    parser.add_argument(
+        "--crn",
+        action=BooleanOptionalAction,
+        default=False,
+        help=(
+            "Enable common-random-number sampling. Runs using the same CRN seed "
+            "and Stim circuit receive identical sampled detector/observable shots."
+        ),
+    )
+    parser.add_argument(
+        "--crn-seed",
+        type=int,
+        default=12345,
+        help="Base random seed used when --crn is enabled.",
+    )
 
     args = parser.parse_args()
 
@@ -476,7 +517,9 @@ if __name__ == "__main__":
          args.sparsify_errors,
          args.sparsify_base_degree,
          args.sparsify_max_degree,
-         args.sparsify_reactivate_limit)
+         args.sparsify_reactivate_limit,
+         args.crn,
+         args.crn_seed)
         for stim_file in stim_files
     ]
 
@@ -503,7 +546,9 @@ if __name__ == "__main__":
                                          sparsify_errors=args.sparsify_errors,
                                          sparsify_base_degree=args.sparsify_base_degree,
                                          sparsify_max_degree=args.sparsify_max_degree,
-                                         sparsify_reactivate_limit=args.sparsify_reactivate_limit)
+                                         sparsify_reactivate_limit=args.sparsify_reactivate_limit,
+                                         crn=args.crn,
+                                         crn_seed=args.crn_seed)
             _write_summary_csv(args.output_csv, result)
             print(f"Finished circuit {i}/{len(stim_files)}\n")
 

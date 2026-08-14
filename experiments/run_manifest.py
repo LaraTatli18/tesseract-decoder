@@ -105,6 +105,8 @@ def build_manifest(
         "sparsify_base_degree": args.sparsify_base_degree,
         "sparsify_max_degree": args.sparsify_max_degree,
         "sparsify_reactivate_limit": args.sparsify_reactivate_limit,
+        "crn": args.crn,
+        "crn_seed": args.crn_seed,
     }
 
     if circuit_metadata is not None:
