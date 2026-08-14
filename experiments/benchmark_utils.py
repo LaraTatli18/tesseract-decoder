@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import math
+import numpy as np
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
@@ -13,6 +14,7 @@ class DecodeStatistics:
     syndrome_weights: list[int]
     correction_sizes: list[int]
     correction_costs: list[float]
+    shot_correct: np.ndarray
     decode_time_seconds: float
 
 

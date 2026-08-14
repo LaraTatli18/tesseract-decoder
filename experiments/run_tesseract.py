@@ -49,6 +49,7 @@ def _analyse_single_shots(
     syndrome_weights: list[int] = []
     correction_sizes: list[int] = []
     correction_costs: list[float] = []
+    shot_correct = np.zeros(len(detections), dtype=bool)
 
     # ========================================
     # MAIN DECODING LOOP
@@ -71,7 +72,9 @@ def _analyse_single_shots(
         if was_low_confidence:
             low_confidence += 1
 
-        if np.array_equal(predicted_obs, truth):
+        shot_correct[shot_index - 1] = np.array_equal(predicted_obs, truth)
+
+        if shot_correct[shot_index - 1]:
             correct += 1
 
         if print_every > 0 and shot_index % print_every == 0:
@@ -83,6 +86,7 @@ def _analyse_single_shots(
         syndrome_weights=syndrome_weights,
         correction_sizes=correction_sizes,
         correction_costs=correction_costs,
+        shot_correct=shot_correct,
         decode_time_seconds=time.perf_counter() - start_time,
     )
 
@@ -102,7 +106,8 @@ def _analyse_batch_shots(
     if observables.ndim == 1:
         observables = observables[:, np.newaxis]
 
-    correct = int(np.sum(np.all(predicted_obs == observables, axis=1)))
+    shot_correct = np.all(predicted_obs == observables, axis=1)
+    correct = int(np.sum(shot_correct))
     syndrome_weights = np.count_nonzero(detections, axis=1).tolist()
 
     return DecodeStatistics(
@@ -111,6 +116,7 @@ def _analyse_batch_shots(
         syndrome_weights=syndrome_weights,
         correction_sizes=[],
         correction_costs=[],
+        shot_correct=shot_correct,
         decode_time_seconds=decode_time_seconds,
     )
 
@@ -132,7 +138,10 @@ def analyse_one_circuit(stim_path: Path,
                         sparsify_max_degree: int,
                         sparsify_reactivate_limit: int,
                         crn: bool,
-                        crn_seed: int) -> BenchmarkResult:
+                        crn_seed: int,
+                        save_samples: bool,
+                        samples_dir: Path | None,
+                        create_visualization: bool) -> BenchmarkResult:
     print("=" * 100)
     print(f"Analysing circuit: {stim_path.name}")
     print("=" * 100)
@@ -152,7 +161,8 @@ def analyse_one_circuit(stim_path: Path,
                                        sparsify_errors=sparsify_errors,
                                        sparsify_base_degree=sparsify_base_degree,
                                        sparsify_max_degree=sparsify_max_degree,
-                                       sparsify_reactivate_limit=sparsify_reactivate_limit
+                                       sparsify_reactivate_limit=sparsify_reactivate_limit,
+                                       create_visualization=create_visualization
                                        )
 
     decoder = config.compile_decoder()
@@ -187,6 +197,29 @@ def analyse_one_circuit(stim_path: Path,
         separate_observables=True,
     )
 
+    if save_samples:
+        if samples_dir is None:
+            raise ValueError(
+                "samples_dir must be provided when save_samples=True"
+            )
+
+        samples_dir.mkdir(parents=True, exist_ok=True)
+        sample_stem = stim_path.stem
+
+        detections_path = (
+            samples_dir / f"{sample_stem}_detections.npy"
+        )
+
+        observables_path = (
+            samples_dir / f"{sample_stem}_observables.npy"
+        )
+
+        np.save(detections_path, detections)
+        np.save(observables_path, observables)
+
+        print(f"Saved detections        : {detections_path}")
+        print(f"Saved observables       : {observables_path}")
+
     if decode_mode == "batch":
         stats = _analyse_batch_shots(decoder, detections, observables, threads)
     elif decode_mode == "single":
@@ -194,6 +227,22 @@ def analyse_one_circuit(stim_path: Path,
                                       print_every)
     else:
         raise (ValueError(f"Unknown decode mode: {decode_mode}"))
+
+    shot_correct = stats.shot_correct
+
+    if save_samples:
+        if samples_dir is None:
+            raise ValueError(
+                "samples_dir must be provided when save_samples=True"
+            )
+
+        samples_dir.mkdir(parents=True, exist_ok=True)
+        correctness_path = (
+            samples_dir / f"{stim_path.stem}_shot_correct.npy"
+        )
+
+        np.save(correctness_path, shot_correct)
+        print(f"Saved shot correctness : {correctness_path}")
 
     correct = stats.correct
     low_confidence = stats.low_confidence
@@ -300,8 +349,8 @@ def analyse_one_circuit(stim_path: Path,
     return result
 
 
-def _worker(task: tuple[Path, int, bool, int, str, int, int, int, bool, bool, int, float, bool, int, int, int, bool, int]) -> BenchmarkResult:
-    stim_path, n_shots, verbose_histograms, print_every, decode_mode, workers, threads, det_beam, beam_climbing, merge_errors, pqlimit, det_penalty, sparsify_errors, sparsify_base_degree, sparsify_max_degree, sparsify_reactivate_limit, crn, crn_seed = task
+def _worker(task: tuple[Path, int, bool, int, str, int, int, int, bool, bool, int, float, bool, int, int, int, bool, int, bool, Path | None, bool]) -> BenchmarkResult:
+    stim_path, n_shots, verbose_histograms, print_every, decode_mode, workers, threads, det_beam, beam_climbing, merge_errors, pqlimit, det_penalty, sparsify_errors, sparsify_base_degree, sparsify_max_degree, sparsify_reactivate_limit, crn, crn_seed, save_samples, samples_dir, create_visualization = task
     print(f"Starting circuit: {stim_path.name}")
     result = analyse_one_circuit(stim_path,
                                  n_shots,
@@ -320,7 +369,10 @@ def _worker(task: tuple[Path, int, bool, int, str, int, int, int, bool, bool, in
                                  sparsify_max_degree,
                                  sparsify_reactivate_limit,
                                  crn,
-                                 crn_seed)
+                                 crn_seed,
+                                 save_samples,
+                                 samples_dir,
+                                 create_visualization)
     print(f"Finished circuit: {stim_path.name}")
     return result
 
@@ -474,6 +526,24 @@ if __name__ == "__main__":
         default=12345,
         help="Base random seed used when --crn is enabled.",
     )
+    parser.add_argument(
+        "--save-samples",
+        action=BooleanOptionalAction,
+        default=False,
+        help=(
+            "Save sampled detector/observable arrays and per-shot correctness "
+            "arrays as .npy files in the run directory."
+        ),
+    )
+    parser.add_argument(
+        "--create-visualization",
+        action=BooleanOptionalAction,
+        default=False,
+        help=(
+            "Enable Tesseract decoder visualization output. Intended for "
+            "dedicated diagnostic runs rather than runtime benchmarking."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -492,6 +562,11 @@ if __name__ == "__main__":
     # =====================================
     run_dir, manifest_path = make_run_directory(args, run_group=args.run_group)
     args.output_csv = run_dir / "results.csv"
+    samples_dir = (
+        run_dir / "samples"
+        if args.save_samples
+        else None
+    )
 
     manifest = build_manifest(args, args.output_csv)
     write_manifest(manifest_path, manifest)
@@ -519,7 +594,10 @@ if __name__ == "__main__":
          args.sparsify_max_degree,
          args.sparsify_reactivate_limit,
          args.crn,
-         args.crn_seed)
+         args.crn_seed,
+         args.save_samples,
+         samples_dir,
+         args.create_visualization)
         for stim_file in stim_files
     ]
 
@@ -548,7 +626,10 @@ if __name__ == "__main__":
                                          sparsify_max_degree=args.sparsify_max_degree,
                                          sparsify_reactivate_limit=args.sparsify_reactivate_limit,
                                          crn=args.crn,
-                                         crn_seed=args.crn_seed)
+                                         crn_seed=args.crn_seed,
+                                         save_samples=args.save_samples,
+                                         samples_dir=samples_dir,
+                                         create_visualization=args.create_visualization)
             _write_summary_csv(args.output_csv, result)
             print(f"Finished circuit {i}/{len(stim_files)}\n")
 

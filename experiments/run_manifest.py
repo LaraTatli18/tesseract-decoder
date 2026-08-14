@@ -107,6 +107,8 @@ def build_manifest(
         "sparsify_reactivate_limit": args.sparsify_reactivate_limit,
         "crn": args.crn,
         "crn_seed": args.crn_seed,
+        "save_samples": args.save_samples,
+        "create_visualization": args.create_visualization,
     }
 
     if circuit_metadata is not None:

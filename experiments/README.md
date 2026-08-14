@@ -8,8 +8,9 @@ The framework is organised around the following workflow:
 run_tesseract.py
         ↓
 experiments/runs/<run_name>/
-        ├── manifest.json
-        └── results.csv
+    ├── manifest.json
+    ├── results.csv
+    └── samples/              # optional CRN/per-shot arrays
         ↓
 plot_*.py
         ↓
@@ -35,7 +36,31 @@ Responsibilities:
 - supports multiprocessing across circuits and multithreading within the decoder
 - records decoder accuracy, logical error rates, runtime, throughput, confidence intervals, and other benchmark statistics
 - creates reproducible run directories and manifests
+- supports common-random-number (CRN) sampling for statistically paired decoder comparisons
+- optionally saves sampled detector events, logical observables, and per-shot decoder correctness as NumPy arrays for paired/per-shot analysis
+- optionally enables Tesseract visualization output for dedicated diagnostic runs
 - exposes decoder parameters used by the parameter studies, including beam, pqlimit, beam climbing, merge-errors, and sparsification settings
+
+#### Common-random-number validation
+
+`run_tesseract.py` supports opt-in common-random-number sampling using `--crn --crn-seed <seed>`. Runs using the same Stim circuit and CRN seed receive the same sampled detector and observable data, allowing decoder configurations to be compared on identical physical error instances rather than independent Monte Carlo samples.
+
+Passing `--save-samples` additionally stores the sampled arrays in the run directory:
+
+```
+samples/
+_detections.npy
+_observables.npy
+_shot_correct.npy
+```
+
+The `shot_correct` array records whether each individual shot was decoded correctly. This enables paired comparisons between configurations and identification of discordant shots for which one configuration succeeds and another fails.
+
+Independent statistical repetitions should use different CRN seeds, while all configurations compared within a repetition should use the same seed. For example, seeds `1001`, `1002`, and `1003` can define three independent repetitions, with each seed shared across the configurations being compared.
+
+#### Diagnostic visualization
+
+Passing `--create-visualization` enables Tesseract's decoder visualization output. Visualization runs are intended for targeted diagnostic/mechanistic analysis and should not be treated as runtime replicates because visualization may introduce additional overhead. A typical final study therefore uses ordinary CRN runs for statistical validation and a separate visualization-enabled diagnostic run for selected configurations or error instances.
 
 ---
 
@@ -66,6 +91,7 @@ Responsible for:
 - command recording
 - experiment metadata
 - optional circuit-family-specific metadata
+- CRN seed, sample-saving, and visualization settings for validation/diagnostic runs
 
 ---
 
@@ -203,6 +229,8 @@ manifest.json
 results.csv
 ```
 
+Runs created with `--save-samples` additionally contain a `samples/` directory with detector, observable, and per-shot correctness arrays. These arrays are not intended to be tracked by Git.
+
 This directory is not tracked by Git.
 
 ---
@@ -236,7 +264,8 @@ python run_tesseract.py ...
 ```
 experiments/runs/<run_name>/
     ├── manifest.json
-    └── results.csv
+    ├── results.csv
+    └── samples/              # present when –save-samples is enabled
 ```
 
 3. Use the appropriate plotting script for the analysis. For example:
@@ -254,4 +283,12 @@ plot_optuna_sparsify.py
 
 4. For automated tuning studies, use `optuna_tune.py` to explore decoder parameter settings and runtime/quality trade-offs.
 
-5. Analyse the resulting figures and tables to identify parameter sensitivity, runtime/accuracy trade-offs, and tuning rules that can be tested across code families and benchmark regimes.
+5. For final paired validation, enable CRN and sample saving, using a shared seed across the configurations being compared:
+
+```
+python run_tesseract.py … –crn –crn-seed 1001 –save-samples
+```
+
+Use a different CRN seed for each independent repetition. Use `--create-visualization` only for separate diagnostic runs.
+
+6. Analyse the resulting figures and tables to identify parameter sensitivity, runtime/accuracy trade-offs, and tuning rules that can be tested across code families and benchmark regimes.
