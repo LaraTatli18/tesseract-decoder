@@ -154,7 +154,7 @@ def analyse_one_circuit(stim_path: Path,
     config = tesseract.TesseractConfig(dem=dem,
                                        det_beam=det_beam,
                                        beam_climbing=beam_climbing,
-                                       verbose=create_visualization,
+                                       verbose=False,
                                        merge_errors=merge_errors,
                                        pqlimit=pqlimit,
                                        det_penalty=det_penalty,
@@ -540,8 +540,11 @@ if __name__ == "__main__":
         action=BooleanOptionalAction,
         default=False,
         help=(
-            "Enable Tesseract decoder visualization output. Intended for "
-            "dedicated diagnostic runs rather than runtime benchmarking."
+            "Enable Tesseract decoder visualization output."
+            "Currently marks a diagnostic run intended to be followed by"
+            "the C++ Tesseract visualization workflow; actual visualization logs"
+            "are generated separately using the src:tesseract executable and "
+            "viz/to_json.py."
         ),
     )
 
