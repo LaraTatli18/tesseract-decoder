@@ -36,7 +36,14 @@ def _git_is_clean() -> bool:
 
 def _build_run_name(args: argparse.Namespace) -> str:
     """Create a short, filesystem-friendly run directory name."""
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S_%f")
+
+    crn_part = (
+        f"_crnseed{args.crn_seed}"
+        if args.crn
+        else ""
+    )
+
     return (
         f"{timestamp}_"
         f"{args.basis}_"
@@ -49,7 +56,8 @@ def _build_run_name(args: argparse.Namespace) -> str:
         f"pq{args.pqlimit}_"
         f"bc{int(args.beam_climbing)}_"
         f"me{int(args.merge_errors)}_"
-        f"sp{int(args.sparsify_errors)}"
+        f"sp{int(args.sparsify_errors)}_"
+        f"{crn_part}"
     )
 
 
