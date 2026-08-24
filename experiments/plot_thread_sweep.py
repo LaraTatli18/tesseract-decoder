@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-"""Plot decoder runtime and throughput as a function of thread count.
+"""Plot mean decoder runtime as a function of thread count.
 
-This script compares benchmark runs across different decoder thread settings and
-produces line plots for decode time and shots per second.
+This script compares three-repeat benchmark runs across decoder thread settings
+and produces a plot of mean decode time versus thread count.
 """
 
 import argparse
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ class ThreadSweepRun:
     threads: int
     decode_time_seconds: float
     shots_per_second: float
+    repeat: int
     run_dir: Path
     manifest: dict[str, Any]
 
@@ -51,53 +53,118 @@ def _collect_runs(
             print(f"Skipping {run.run_dir}: invalid thread-sweep data")
             continue
 
+        repeat_match = re.search(
+            r"thread_sweep_d11_p002_rep(\d+)",
+            str(run.run_dir),
+        )
+        if repeat_match is None:
+            print(
+                f"Skipping {run.run_dir}: "
+                "could not determine repeat number"
+            )
+            continue
+
+        repeat = int(repeat_match.group(1))
+
         runs.append(
             ThreadSweepRun(
                 threads=threads,
                 decode_time_seconds=decode_time_seconds,
                 shots_per_second=shots_per_second,
+                repeat=repeat,
                 run_dir=run.run_dir,
                 manifest=run.manifest,
             )
         )
 
-    runs.sort(key=lambda run: run.threads)
+    runs.sort(key=lambda run: (run.threads, run.repeat))
     return runs
 
 
-def _plot_metric(
-    x: list[int],
-    y: list[float],
+def _group_thread_metrics(
+    runs: list[ThreadSweepRun],
+) -> tuple[list[int], list[float], list[float]]:
+    grouped_times: dict[int, list[float]] = {}
+    grouped_throughput: dict[int, list[float]] = {}
+
+    for run in runs:
+        grouped_times.setdefault(run.threads, []).append(
+            run.decode_time_seconds
+        )
+        grouped_throughput.setdefault(run.threads, []).append(
+            run.shots_per_second
+        )
+
+    threads = sorted(grouped_times)
+
+    mean_decode_times = [
+        sum(grouped_times[t]) / len(grouped_times[t])
+        for t in threads
+    ]
+
+    mean_throughput = [
+        sum(grouped_throughput[t]) / len(grouped_throughput[t])
+        for t in threads
+    ]
+
+    return threads, mean_decode_times, mean_throughput
+
+
+def _plot_mean_decode_time(
+    threads: list[int],
+    means: list[float],
     *,
-    xlabel: str,
-    ylabel: str,
-    title: str,
     output: Path,
-    annotate_points: bool = True,
 ) -> None:
     fig, ax = plt.subplots(figsize=(7, 4))
 
-    ax.plot(x, y, marker="o")
+    ax.plot(threads, means, marker="o")
 
-    if annotate_points:
-        for xi, yi in zip(x, y):
-            ax.annotate(
-                str(xi),
-                (xi, yi),
-                textcoords="offset points",
-                xytext=(0, 8),
-                ha="center",
-            )
+    for thread_count, mean_time in zip(threads, means):
+        ax.annotate(
+            str(thread_count),
+            (thread_count, mean_time),
+            textcoords="offset points",
+            xytext=(0, 8),
+            ha="center",
+        )
 
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
+    ax.set_xlabel("Decoder threads")
+    ax.set_ylabel("Mean decode time (s)")
+    ax.set_title("Thread sweep: mean decode time")
     ax.grid(True, alpha=0.3)
 
     fig.tight_layout()
     save_figure(fig, output)
     plt.close(fig)
 
+def _plot_mean_throughput(
+    threads: list[int],
+    means: list[float],
+    *,
+    output: Path,
+) -> None:
+    fig, ax = plt.subplots(figsize=(7, 4))
+
+    ax.plot(threads, means, marker="o")
+
+    for thread_count, mean_throughput in zip(threads, means):
+        ax.annotate(
+            str(thread_count),
+            (thread_count, mean_throughput),
+            textcoords="offset points",
+            xytext=(0, 8),
+            ha="center",
+        )
+
+    ax.set_xlabel("Decoder threads")
+    ax.set_ylabel("Mean throughput (shots/s)")
+    ax.set_title("Thread sweep: mean throughput")
+    ax.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    save_figure(fig, output)
+    plt.close(fig)
 
 def main() -> int:
     setup_matplotlib()
@@ -188,50 +255,66 @@ def main() -> int:
     else:
         args.p_values = list(args.p_values)
 
-    run_dirs = expand_run_dirs([args.runs_root])
+    # The three repeats are run-group directories containing the
+    # timestamped benchmark directories.
+    repeat_groups = sorted(
+        args.runs_root.glob("thread_sweep_d11_p002_rep*")
+    )
+
+    run_dirs: list[Path] = []
+
+    for group_dir in repeat_groups:
+        if group_dir.is_dir():
+            run_dirs.extend(
+                expand_run_dirs([group_dir])
+            )
+
     runs = _collect_runs(run_dirs, args)
 
     if not runs:
-        print(f"No matching thread-sweep runs found under {args.runs_root}")
+        print(
+            f"No matching thread-sweep runs found under "
+            f"{args.runs_root}"
+        )
         return 1
 
-    print("threads,decode_time_seconds,shots_per_second,run_dir")
+    print("threads,repeat,decode_time_seconds,run_dir")
+
     for run in runs:
         print(
             f"{run.threads},"
+            f"{run.repeat},"
             f"{run.decode_time_seconds:.6f},"
-            f"{run.shots_per_second:.2f},"
             f"{run.run_dir.name}"
         )
 
-    threads = [run.threads for run in runs]
-    decode_times = [run.decode_time_seconds for run in runs]
-    throughputs = [run.shots_per_second for run in runs]
+    threads, mean_decode_times, mean_throughput = _group_thread_metrics(runs)
 
-    decode_time_png = args.output_dir / "thread_sweep_decode_time.png"
-    throughput_png = args.output_dir / "thread_sweep_throughput.png"
-
-    _plot_metric(
-        threads,
-        decode_times,
-        xlabel="Decoder threads",
-        ylabel="Decode time (s)",
-        title="Thread sweep: decode time",
-        output=decode_time_png,
+    decode_time_output = (
+        args.output_dir
+        / "thread_sweep_mean_decode_time.png"
     )
 
-    _plot_metric(
+    throughput_output = (
+        args.output_dir
+        / "thread_sweep_mean_throughput.png"
+    )
+
+    _plot_mean_decode_time(
         threads,
-        throughputs,
-        xlabel="Decoder threads",
-        ylabel="Shots per second",
-        title="Thread sweep: throughput",
-        output=throughput_png,
+        mean_decode_times,
+        output=decode_time_output,
+    )
+
+    _plot_mean_throughput(
+        threads,
+        mean_throughput,
+        output=throughput_output,
     )
 
     print()
-    print(f"Saved: {decode_time_png}")
-    print(f"Saved: {throughput_png}")
+    print(f"Saved: {decode_time_output}")
+    print(f"Saved: {throughput_output}")
 
     return 0
 

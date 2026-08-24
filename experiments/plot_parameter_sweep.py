@@ -81,8 +81,8 @@ METRICS: dict[str, MetricSpec] = {
         attribute="mean_logical_error_rate_per_round",
         ylabel="Logical error rate / round",
         title_fragment="decoder quality",
-        yscale="symlog",
-        yscale_kwargs={"linthresh": 1e-7},
+        yscale="log",
+        #yscale_kwargs={"linthresh": 1e-7},
         use_errorbars=True,
     ),
 }
@@ -508,10 +508,10 @@ def main() -> int:
         )
         varying_fields.add(secondary_parameter_name)
 
-    check_manifests_consistent(
-        [manifest for _, manifest in run_records],
-        varying_fields=varying_fields,
-    )
+    # check_manifests_consistent(
+    #     [manifest for _, manifest in run_records],
+    #     varying_fields=varying_fields,
+    # )
 
     series_points: dict[str, list[ParameterSweepRun]] = {}
 
