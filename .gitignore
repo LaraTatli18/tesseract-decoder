@@ -44,6 +44,7 @@ MODULE.bazel.lock
 experiments/runs/
 experiments/results/
 experiments/archive/results/
+experiments/archive/plots/
 experiments/plots/
 logs/
 *.log

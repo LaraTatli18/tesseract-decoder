@@ -296,12 +296,13 @@ def _suggest_params(trial: optuna.Trial, args: argparse.Namespace) -> TrialParam
         )
 
         if args.tune_sparsify_max_degree:
-            # run_tesseract requires sparsify_max_degree >= sparsify_base_degree.
-            # Filter the search space so Optuna never proposes an invalid pair.
+            # Finite maximum degrees must be >= the base degree.
+            # -1 is a special documented sentinel meaning "no maximum
+            # degree cap", so it must not be removed by this check.
             max_degree_candidates = [
                 candidate
                 for candidate in args.sparsify_max_degree_candidates
-                if candidate >= sparsify_base_degree
+                if candidate == -1 or candidate >= sparsify_base_degree
             ]
             if not max_degree_candidates:
                 max_degree_candidates = [sparsify_base_degree]
